@@ -227,6 +227,12 @@ export interface Options {
     emailMailgunApiKey?: string;
     emailMailgunDomain?: string;
     emailMailgunApiBase?: string;
+    emailSmtpHost?: string;
+    emailSmtpPort?: number;
+    emailSmtpUsername?: string;
+    emailSmtpPassword?: string;
+    emailSmtpUseTLS?: boolean;
+    emailSmtpSkipVerify?: boolean;
     emailLogoFilename?: string;
     emailLogoBorderRadius?: string;
     stripePublishableKey?: string;
@@ -789,6 +795,12 @@ export class RdioScannerAdminService implements OnDestroy {
             emailMailgunApiKey: this.ngFormBuilder.control(options?.emailMailgunApiKey || ''),
             emailMailgunDomain: this.ngFormBuilder.control(options?.emailMailgunDomain || ''),
             emailMailgunApiBase: this.ngFormBuilder.control(options?.emailMailgunApiBase || 'https://api.mailgun.net'),
+            emailSmtpHost: this.ngFormBuilder.control(options?.emailSmtpHost || ''),
+            emailSmtpPort: this.ngFormBuilder.control(options?.emailSmtpPort || 587),
+            emailSmtpUsername: this.ngFormBuilder.control(options?.emailSmtpUsername || ''),
+            emailSmtpPassword: this.ngFormBuilder.control(options?.emailSmtpPassword || ''),
+            emailSmtpUseTLS: this.ngFormBuilder.control(options?.emailSmtpUseTLS ?? true),
+            emailSmtpSkipVerify: this.ngFormBuilder.control(options?.emailSmtpSkipVerify || false),
             emailLogoFilename: this.ngFormBuilder.control(options?.emailLogoFilename || ''),
             emailLogoBorderRadius: this.ngFormBuilder.control(options?.emailLogoBorderRadius || '0px'),
             stripePublishableKey: this.ngFormBuilder.control(options?.stripePublishableKey),

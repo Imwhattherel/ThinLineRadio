@@ -162,7 +162,7 @@ cat > "$DIST_DIR/README.md" << EOF
 
 ## Version ${VERSION}
 
-This distribution is built for Linux amd64 and should work on most Linux distributions including:
+This distribution is built for Linux ${ARCH_NAME} and should work on most Linux distributions including:
 - Ubuntu/Debian
 - Fedora/CentOS/RHEL
 - Arch Linux
@@ -175,16 +175,61 @@ This distribution is built for Linux amd64 and should work on most Linux distrib
    chmod +x thinline-radio
    \`\`\`
 
-2. **Configure the server:**
+2. **Set up PostgreSQL:**
+   
+   You have two options for PostgreSQL setup:
+   
+   ### Option A: Interactive Setup Wizard (Recommended)
+   
+   Simply run the server and it will guide you through setup:
+   \`\`\`bash
+   ./thinline-radio
+   \`\`\`
+   
+   The wizard will:
+   - Detect if PostgreSQL is installed locally
+   - Offer to guide you through local PostgreSQL installation
+   - Or help you connect to a remote PostgreSQL server
+   - Automatically create the database and user (local)
+   - Generate the configuration file
+   
+   **For Local PostgreSQL:**
+   - The wizard will prompt for your PostgreSQL superuser password
+   - It will create the database and user automatically
+   - Configuration file will be created for you
+   
+   **For Remote PostgreSQL:**
+   - The wizard will prompt for your remote server details
+   - You'll need existing database credentials
+   - Make sure the remote PostgreSQL server allows connections
+   
+   ### Option B: Manual Setup
+   
+   Install PostgreSQL and configure manually:
+   
+   - **Install PostgreSQL:**
+     \`\`\`bash
+     sudo apt update
+     sudo apt install postgresql postgresql-contrib
+     \`\`\`
+   
+   - **Create Database and User:**
+     \`\`\`bash
+     sudo -u postgres psql
+     \`\`\`
+     In the PostgreSQL prompt:
+     \`\`\`sql
+     CREATE DATABASE thinline_radio;
+     CREATE USER thinline_user WITH PASSWORD 'your_secure_password';
+     GRANT ALL PRIVILEGES ON DATABASE thinline_radio TO thinline_user;
+     \\q
+     \`\`\`
+
+3. **Configure the server (if using manual setup):**
    \`\`\`bash
    cp thinline-radio.ini.template thinline-radio.ini
    nano thinline-radio.ini  # Edit with your database and server settings
    \`\`\`
-
-3. **Set up the database:**
-   - Ensure PostgreSQL is installed and running
-   - Create a database for ThinLine Radio
-   - Update the database credentials in \`thinline-radio.ini\`
 
 4. **Run the server:**
    \`\`\`bash
@@ -238,7 +283,7 @@ To run ThinLine Radio as a systemd service:
 ## Requirements
 
 - Linux distribution with systemd (most modern distributions)
-- PostgreSQL 12+ (or MySQL 8+)
+- PostgreSQL 12+
 - FFmpeg (for audio processing)
 - Sufficient disk space for audio files
 

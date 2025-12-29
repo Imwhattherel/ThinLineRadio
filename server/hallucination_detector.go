@@ -277,19 +277,7 @@ func (hd *HallucinationDetector) getOrCreatePhrase(phrase string, systemId uint6
 	query := fmt.Sprintf(`INSERT INTO "suspectedHallucinations" ("phrase", "rejectedCount", "acceptedCount", "firstSeenAt", "lastSeenAt", "systemIds", "status", "autoAdded", "createdAt", "updatedAt") VALUES ($1, %d, %d, %d, %d, $2, '%s', %t, %d, %d) RETURNING "id"`,
 		sh.RejectedCount, sh.AcceptedCount, sh.FirstSeenAt, sh.LastSeenAt, sh.Status, sh.AutoAdded, sh.CreatedAt, sh.UpdatedAt)
 
-	if hd.controller.Database.Config.DbType == DbTypePostgresql {
-		err = hd.controller.Database.Sql.QueryRow(query, phrase, string(systemIdsJson)).Scan(&sh.Id)
-	} else {
-		// MySQL
-		query = fmt.Sprintf(`INSERT INTO "suspectedHallucinations" ("phrase", "rejectedCount", "acceptedCount", "firstSeenAt", "lastSeenAt", "systemIds", "status", "autoAdded", "createdAt", "updatedAt") VALUES (?, %d, %d, %d, %d, ?, '%s', %t, %d, %d)`,
-			sh.RejectedCount, sh.AcceptedCount, sh.FirstSeenAt, sh.LastSeenAt, sh.Status, sh.AutoAdded, sh.CreatedAt, sh.UpdatedAt)
-		result, err := hd.controller.Database.Sql.Exec(query, phrase, string(systemIdsJson))
-		if err != nil {
-			return nil, err
-		}
-		id, _ := result.LastInsertId()
-		sh.Id = uint64(id)
-	}
+	err = hd.controller.Database.Sql.QueryRow(query, phrase, string(systemIdsJson)).Scan(&sh.Id)
 
 	if err != nil {
 		return nil, err
@@ -302,9 +290,6 @@ func (hd *HallucinationDetector) getOrCreatePhrase(phrase string, systemId uint6
 func (hd *HallucinationDetector) getPhrase(phrase string) (*SuspectedHallucination, error) {
 	query := `SELECT "id", "phrase", "rejectedCount", "acceptedCount", "firstSeenAt", "lastSeenAt", "systemIds", "status", "autoAdded", "createdAt", "updatedAt" FROM "suspectedHallucinations" WHERE "phrase" = $1`
 
-	if hd.controller.Database.Config.DbType != DbTypePostgresql {
-		query = `SELECT "id", "phrase", "rejectedCount", "acceptedCount", "firstSeenAt", "lastSeenAt", "systemIds", "status", "autoAdded", "createdAt", "updatedAt" FROM "suspectedHallucinations" WHERE "phrase" = ?`
-	}
 
 	var sh SuspectedHallucination
 	var systemIdsJson string
@@ -340,16 +325,8 @@ func (hd *HallucinationDetector) savePhrase(sh *SuspectedHallucination) error {
 	query := fmt.Sprintf(`UPDATE "suspectedHallucinations" SET "rejectedCount" = %d, "acceptedCount" = %d, "lastSeenAt" = %d, "systemIds" = $1, "status" = '%s', "autoAdded" = %t, "updatedAt" = %d WHERE "id" = %d`,
 		sh.RejectedCount, sh.AcceptedCount, sh.LastSeenAt, escapeQuotes(sh.Status), sh.AutoAdded, sh.UpdatedAt, sh.Id)
 
-	if hd.controller.Database.Config.DbType == DbTypePostgresql {
-		_, err := hd.controller.Database.Sql.Exec(query, string(systemIdsJson))
-		return err
-	} else {
-		// MySQL
-		query = fmt.Sprintf(`UPDATE "suspectedHallucinations" SET "rejectedCount" = %d, "acceptedCount" = %d, "lastSeenAt" = %d, "systemIds" = ?, "status" = '%s', "autoAdded" = %t, "updatedAt" = %d WHERE "id" = %d`,
-			sh.RejectedCount, sh.AcceptedCount, sh.LastSeenAt, escapeQuotes(sh.Status), sh.AutoAdded, sh.UpdatedAt, sh.Id)
-		_, err := hd.controller.Database.Sql.Exec(query, string(systemIdsJson))
-		return err
-	}
+	_, err := hd.controller.Database.Sql.Exec(query, string(systemIdsJson))
+	return err
 }
 
 // GetPendingSuggestions returns all pending hallucination suggestions

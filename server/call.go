@@ -590,7 +590,7 @@ func (calls *Calls) Search(searchOptions *CallsSearchOptions, client *Client) (*
 	searchResults.Count = 0
 	searchResults.HasMore = false
 
-	// Use subquery approach that works for both PostgreSQL and MySQL
+	// Use subquery approach for PostgreSQL
 	// Query for limit+1 to determine if there are more results
 	queryLimit := limit + 1
 	query = fmt.Sprintf(`SELECT c."callId", c."timestamp", c."systemRef", c."talkgroupRef", c."frequency", c."siteRef", (SELECT cu."unitRef" FROM "callUnits" cu WHERE cu."callId" = c."callId" ORDER BY cu."offset" LIMIT 1) as "source" FROM "calls" AS c LEFT JOIN "delayed" AS d ON d."callId" = c."callId" %s ORDER BY c."timestamp" %s LIMIT %d OFFSET %d`, delayWhere, order, queryLimit, offset)
@@ -740,6 +740,12 @@ func (calls *Calls) WriteCall(call *Call, db *Database) (uint64, error) {
 	}
 
 	for _, unit := range call.Units {
+		// Skip invalid unitRef values from Trunk Recorder (e.g., -1 which wraps to 18446744073709551615)
+		// Trunk Recorder sends -1 when radio ID is unknown or not determined
+		// PostgreSQL bigint max is 9223372036854775807, so wrapped values exceed this
+		if unit.UnitRef > 9223372036854775807 {
+			continue
+		}
 		query = fmt.Sprintf(`INSERT INTO "callUnits" ("callId", "offset", "unitRef") VALUES (%d, %f, %d)`, call.Id, unit.Offset, unit.UnitRef)
 		if _, err = tx.Exec(query); err != nil {
 			tx.Rollback()

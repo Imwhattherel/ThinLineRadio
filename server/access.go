@@ -264,13 +264,8 @@ func (accesses *Accesses) Read(db *Database) error {
 
 	log.Printf("DEBUG: Accesses.Read() starting - reading from database")
 
-	var query string
-	if db.Config.DbType == DbTypePostgresql {
-		// Explicitly use public schema to avoid search_path issues
-		query = `SELECT "accessId", "code", "expiration", "ident", "limit", "order", "systems" FROM "public"."accesses"`
-	} else {
-		query = "SELECT `accessId`, `code`, `expiration`, `ident`, `limit`, `order`, `systems` FROM `accesses`"
-	}
+	// Explicitly use public schema to avoid search_path issues
+	query := `SELECT "accessId", "code", "expiration", "ident", "limit", "order", "systems" FROM "public"."accesses"`
 
 	if rows, err = db.Sql.Query(query); err != nil {
 		// Table should exist from schema creation - if it doesn't, try to create it

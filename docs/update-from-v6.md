@@ -8,8 +8,7 @@ ThinLine Radio v7 has significant changes from version 6. This guide will help y
 
 ### Database Changes
 
-- **SQLite is no longer supported**. ThinLine Radio v7 requires either PostgreSQL or MySQL/MariaDB.
-- **PostgreSQL is recommended**. All changes have been tested on PostgreSQL. MySQL/MariaDB support exists but has not been fully tested.
+- **SQLite is no longer supported**. ThinLine Radio v7 requires PostgreSQL.
 - **Users will be dropped**. Version 7 introduces a completely new user system with email-based authentication, passwords, and password reset functionality. All existing users from version 6 will need to be recreated.
 
 ### Configuration Migration
@@ -38,23 +37,11 @@ Before upgrading, export your configuration from your v6 instance:
 
 Start ThinLine Radio v7 with the appropriate database connection arguments:
 
-**For PostgreSQL (Recommended):**
 ```bash
 ./thinline-radio \
     -db_type postgresql \
     -db_host localhost \
     -db_port 5432 \
-    -db_name thinline_radio \
-    -db_username your_username \
-    -db_password your_password
-```
-
-**For MySQL/MariaDB (Not fully tested):**
-```bash
-./thinline-radio \
-    -db_type mysql \
-    -db_host localhost \
-    -db_port 3306 \
     -db_name thinline_radio \
     -db_username your_username \
     -db_password your_password
@@ -128,24 +115,6 @@ GRANT ALL PRIVILEGES ON DATABASE thinline_radio TO thinline_user;
 \q
 ```
 
-### MySQL/MariaDB (Not Fully Tested)
-
-While MySQL/MariaDB is supported, it has not been fully tested. If you encounter issues, consider migrating to PostgreSQL.
-
-**Installation:**
-- Ubuntu/Debian: `sudo apt-get install mysql-server` or `sudo apt-get install mariadb-server`
-- CentOS/RHEL: `sudo yum install mysql-server` or `sudo yum install mariadb-server`
-- macOS: `brew install mysql` or `brew install mariadb`
-
-**Create Database:**
-```bash
-mysql -u root -p
-CREATE DATABASE thinline_radio;
-CREATE USER 'thinline_user'@'localhost' IDENTIFIED BY 'your_password';
-GRANT ALL PRIVILEGES ON thinline_radio.* TO 'thinline_user'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-```
 
 ## Troubleshooting
 

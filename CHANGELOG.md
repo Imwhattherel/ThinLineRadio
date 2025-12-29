@@ -1,12 +1,83 @@
 # Change log
 
+## Version 7.0 Beta 2 - December 28, 2024
+
+### Build System Fixes
+- **Fixed missing Angular component files**: Added `config-sync` component files that were accidentally excluded from Git repository
+  - Fixed `.gitignore` rule that was too broad (`config-sync/` → `/config-sync/`)
+  - Users building from source no longer get "Module not found: Error: Can't resolve './tools/config-sync/config-sync.component'" error
+  - Added `config-sync.component.ts`, `config-sync.component.html`, and `config-sync.component.scss` to repository
+
+### Email & Configuration
+- **Re-added SMTP email support** alongside existing Mailgun and SendGrid providers
+  - Full TLS/SSL encryption support
+  - Admin UI configuration for SMTP host, port, username, password
+  - Option to skip certificate verification for self-signed certificates
+  - Fixed SMTP configuration not saving properly in admin panel
+
+### Radio Reference Import
+- Fixed duplicate key errors during talkgroup imports
+- Fixed groups and tags not being created/saved during imports
+- Added support for updating existing talkgroups while preserving custom settings (tones, alerts, delays)
+- Implemented upsert logic for sites (update existing or create new based on Radio Reference ID)
+- Added automatic config reload after import to sync database-assigned IDs
+- Added support for selecting multiple talkgroup categories simultaneously
+- Sorted talkgroup categories alphabetically for easier navigation
+- Added visual separators between dropdown options for improved readability
+- Improved import success messaging with created/updated counts
+
+### SDRTrunk Compatibility
+- Fixed SDRTrunk 0.6.0 test connection compatibility issue
+- Removed noisy test connection logs (now handled silently)
+- Added detailed diagnostic logging for incomplete call data uploads
+- Fixed talkgroup parsing to allow `talkgroup=0` for test connections
+
+### Database & Performance
+- Added automatic PostgreSQL sequence reset to prevent duplicate key errors
+- Fixed sequence detection for case-sensitive table names (userGroups, registrationCodes)
+- Sequences now automatically reset to MAX(id) + 1 on server startup
+- Prevents duplicate key violations when creating new API keys, talkgroups, groups, tags, etc.
+
+---
+
+## Latest Updates
+
+### December 28, 2024
+
+**Email & Configuration:**
+- Re-added SMTP email support alongside existing Mailgun and SendGrid providers
+- Fixed SMTP configuration not saving properly in admin panel
+
+**Radio Reference Import:**
+- Fixed duplicate key errors during talkgroup imports
+- Fixed groups and tags not being created/saved during imports
+- Added support for updating existing talkgroups while preserving custom settings (tones, alerts, delays)
+- Implemented upsert logic for sites (update existing or create new based on Radio Reference ID)
+- Added automatic config reload after import to sync database-assigned IDs
+- Added support for selecting multiple talkgroup categories simultaneously
+- Sorted talkgroup categories alphabetically for easier navigation
+- Added visual separators between dropdown options for improved readability
+- Improved import success messaging with created/updated counts
+
+**SDRTrunk Compatibility:**
+- Fixed SDRTrunk 0.6.0 test connection compatibility issue
+- Removed noisy test connection logs (now handled silently)
+- Added detailed diagnostic logging for incomplete call data uploads
+- Fixed talkgroup parsing to allow `talkgroup=0` for test connections
+
+**Database & Performance:**
+- Added automatic PostgreSQL sequence reset to prevent duplicate key errors
+- Fixed sequence detection for case-sensitive table names (userGroups, registrationCodes)
+- Sequences now automatically reset to MAX(id) + 1 on server startup
+- Prevents duplicate key violations when creating new API keys, talkgroups, groups, tags, etc.
+
 ## Version 7.0
 
 **Make sure to backup your config and your database before updating to Version 7.0.**
 
 ### Core Version 7.0 Features (Original Rdio Scanner Project)
 
-- New database schema now compatible with MariaDB, MySQL and PostgreSQL. 
+- New database schema now compatible with PostgreSQL. 
 
 **SQLite Support Removed:**
 SQLite support has been removed in v7 due to fundamental architectural limitations that make it unsuitable for Rdio Scanner's production workloads, even in v6. SQLite suffers from:
@@ -16,7 +87,7 @@ SQLite support has been removed in v7 due to fundamental architectural limitatio
 - **No true concurrent writes**: SQLite only allows one writer at a time, which creates contention when multiple systems are ingesting calls, storing transcriptions, updating user preferences, and processing alerts simultaneously.
 - **File-based architecture**: The file-based nature of SQLite makes it unsuitable for distributed or high-availability deployments, and creates I/O bottlenecks that proper database servers avoid through optimized memory management and connection pooling.
 
-For production deployments, MariaDB, MySQL, or PostgreSQL are required and provide proper concurrent access, connection pooling, and performance characteristics needed for Rdio Scanner's real-time, multi-user architecture.
+For production deployments, PostgreSQL is required and provides proper concurrent access, connection pooling, and performance characteristics needed for Rdio Scanner's real-time, multi-user architecture.
 - New Delayed feature which allows to delay ingested audio broadcasting for a specified amount of minutes.
 - New alert sounds that can be assigned to groups, tags, systems and talkgroups.
 - New system and talkgroup types to help identify the radio system.
@@ -36,6 +107,46 @@ For production deployments, MariaDB, MySQL, or PostgreSQL are required and provi
 ## THINLINE DYNAMIC SOLUTIONS ENHANCEMENTS & ADDITIONS
 
 The following features and fixes were added by Thinline Dynamic Solutions to the base Rdio Scanner v7.0:
+
+### Latest Updates (December 28, 2024)
+
+**New Features:**
+- **SMTP Email Support Re-added**: Direct SMTP email provider support restored alongside SendGrid and Mailgun with full TLS/SSL encryption support and admin UI configuration
+- **Interactive Setup Wizard**: Added comprehensive interactive setup wizard for first-time installation
+  - Automatically detects if PostgreSQL is installed locally
+  - Guides users through PostgreSQL installation with platform-specific instructions
+  - Supports both local PostgreSQL setup (auto-creates database and user) and remote PostgreSQL server configuration
+  - Generates configuration file automatically based on user inputs
+  - Beautiful ASCII art radio scanner display with Ohio MARCS-IP branding
+  - Handles incomplete or missing configuration files gracefully
+  
+- **Database Performance Optimization**: Dramatically improved mobile app search performance
+  - Added composite index `callUnits_callId_idx` on `callUnits` table for `(callId, offset)`
+  - Reduced search query execution time from 23+ seconds to ~55ms (420x faster)
+  - Fixed N+1 query problem in call search where correlated subquery was performing 201 sequential scans
+  - Migration system ensures index is applied to both new installations and existing databases
+
+**Documentation Updates:**
+- Updated all platform build scripts (Linux, Windows, macOS) to include Interactive Setup Wizard documentation
+- Enhanced README.md with clear setup options (Interactive Wizard vs Manual)
+- Updated `docs/setup-and-administration.md` with comprehensive wizard documentation
+- All distribution packages now include updated setup instructions with both local and remote PostgreSQL options
+
+**Bug Fixes:**
+- Fixed invalid user account creation and last login dates showing "invalid date" or "1/1/2000"
+  - Added migration to fix existing users with empty or invalid timestamps
+  - CreatedAt and LastLogin fields now properly initialized with Unix timestamps
+  - API returns `null` instead of `0` for never-logged-in users
+  - Fixed NewUser() constructor to set proper default timestamps
+- Fixed SDR Trunk auto-import issue where talkgroup name field was incorrectly set to talkgroup ID instead of label
+  - Talkgroup name now properly uses label as fallback when name field is not provided
+- Fixed Trunk Recorder radio ID -1 (unknown radio) causing database errors
+  - Added validation to skip invalid unitRef values that exceed PostgreSQL bigint limits
+  - -1 values from Trunk Recorder no longer cause "bigint out of range" errors
+- Removed Cloudflare Turnstile CAPTCHA requirement from relay server registration (API key request)
+  - Removed Turnstile widget and validation from frontend API key request dialog
+  - Removed backend CAPTCHA verification check (controlled by turnstile_secret_key config)
+  - Simplified registration flow for relay server connections
 
 ### Major Feature Additions
 
@@ -178,7 +289,7 @@ New tables added in v7:
 - Fixed persistence issue where Default System Delay option was not being saved/loaded properly across server restarts
 - Fixed search bypass issue - Search results now properly exclude calls that should be delayed based on current time and system delay settings
 - Fixed SQL syntax errors - Resolved PostgreSQL compatibility issues with ORDER BY clauses and parameter placeholders
-- Fixed database compatibility - SQL query construction now works correctly with PostgreSQL, MySQL/MariaDB
+- Fixed database compatibility - SQL query construction now works correctly with PostgreSQL
 
 **Default System Delay Enhancement**
 - Added new "Default System Delay" configuration option that applies to all systems and talkgroups unless they have specific delay values set

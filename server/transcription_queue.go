@@ -255,13 +255,6 @@ func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *Trans
 		if err != nil {
 			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to update call transcript: %v", err))
 		}
-	} else {
-		// MySQL
-		query = fmt.Sprintf(`UPDATE "calls" SET "transcript" = ?, "transcriptConfidence" = %.2f, "transcriptionStatus" = 'completed' WHERE "callId" = %d`, result.Confidence, callId)
-		_, err := queue.controller.Database.Sql.Exec(query, transcript)
-		if err != nil {
-			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to update call transcript: %v", err))
-		}
 	}
 	
 	// Store detailed transcription (optional, for history)

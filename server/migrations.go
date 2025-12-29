@@ -23,6 +23,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 )
 
 // migrateAccesses - REMOVED: Access codes functionality has been removed
@@ -254,12 +255,7 @@ func migrateCalls(db *Database) error {
 			frequencyValue = int64(frequency.Int32)
 		}
 
-		if db.Config.DbType == DbTypePostgresql {
-			query = fmt.Sprintf(`INSERT INTO "calls" ("callId", "audio", "audioFilename", "audioMime", "siteRef", "systemId", "talkgroupId", "timestamp", "frequency") VALUES (%d, $1, '%s', '%s', 0, %d, %d, %d, %d)`, call.Id, call.AudioFilename, call.AudioMime, systems[systemRef.Int32], talkgroups[systemRef.Int32][talkgroupRef.Int32], timestamp, frequencyValue)
-
-		} else {
-			query = fmt.Sprintf(`INSERT INTO "calls" ("callId", "audio", "audioFilename", "audioMime", "siteRef", "systemId", "talkgroupId", "timestamp", "frequency") VALUES (%d, ?, '%s', '%s', 0, %d, %d, %d, %d)`, call.Id, call.AudioFilename, call.AudioMime, systems[systemRef.Int32], talkgroups[systemRef.Int32][talkgroupRef.Int32], timestamp, frequencyValue)
-		}
+		query = fmt.Sprintf(`INSERT INTO "calls" ("callId", "audio", "audioFilename", "audioMime", "siteRef", "systemId", "talkgroupId", "timestamp", "frequency") VALUES (%d, $1, '%s', '%s', 0, %d, %d, %d, %d)`, call.Id, call.AudioFilename, call.AudioMime, systems[systemRef.Int32], talkgroups[systemRef.Int32][talkgroupRef.Int32], timestamp, frequencyValue)
 
 		if _, err = tx.Exec(query, call.Audio); err == nil {
 			if patches.Valid && len(patches.String) > 0 {
@@ -367,11 +363,7 @@ func migrateCallsRefs(db *Database) error {
 	}
 
 	// Update all calls with their systemRef and talkgroupRef
-	if db.Config.DbType == DbTypePostgresql {
-		query = `UPDATE "calls" AS c SET "systemRef" = s."systemRef", "talkgroupRef" = t."talkgroupRef" FROM "systems" AS s, "talkgroups" AS t WHERE c."systemId" = s."systemId" AND c."talkgroupId" = t."talkgroupId" AND (c."systemRef" = 0 OR c."talkgroupRef" = 0)`
-	} else {
-		query = `UPDATE "calls" AS c INNER JOIN "systems" AS s ON c."systemId" = s."systemId" INNER JOIN "talkgroups" AS t ON c."talkgroupId" = t."talkgroupId" SET c."systemRef" = s."systemRef", c."talkgroupRef" = t."talkgroupRef" WHERE c."systemRef" = 0 OR c."talkgroupRef" = 0`
-	}
+	query = `UPDATE "calls" AS c SET "systemRef" = s."systemRef", "talkgroupRef" = t."talkgroupRef" FROM "systems" AS s, "talkgroups" AS t WHERE c."systemId" = s."systemId" AND c."talkgroupId" = t."talkgroupId" AND (c."systemRef" = 0 OR c."talkgroupRef" = 0)`
 
 	if _, err = tx.Exec(query); err != nil {
 		tx.Rollback()
@@ -816,35 +808,19 @@ func prepareMigration(db *Database) (bool, error) {
 		query   string
 	)
 
-	if db.Config.DbType == DbTypePostgresql {
-		query = `SELECT COUNT(*) FROM "rdioScannerMeta"`
-	} else {
-		query = "SELECT COUNT(*) FROM `rdioScannerMeta`"
-	}
+	query = `SELECT COUNT(*) FROM "rdioScannerMeta"`
 
 	if _, err = db.Sql.Exec(query); err != nil {
 		// Table doesn't exist, check for SequelizeMeta (legacy)
-		if db.Config.DbType == DbTypePostgresql {
-			query = `SELECT COUNT(*) FROM "SequelizeMeta"`
-		} else {
-			query = "SELECT COUNT(*) FROM `SequelizeMeta`"
-		}
+		query = `SELECT COUNT(*) FROM "SequelizeMeta"`
 		if _, err = db.Sql.Exec(query); err == nil {
 			log.Println("Preparing for database migration")
-			if db.Config.DbType == DbTypePostgresql {
-				query = `ALTER TABLE "SequelizeMeta" RENAME TO "rdioScannerMeta"`
-			} else {
-				query = "ALTER TABLE `SequelizeMeta` RENAME TO `rdioScannerMeta`"
-			}
+			query = `ALTER TABLE "SequelizeMeta" RENAME TO "rdioScannerMeta"`
 			_, err = db.Sql.Exec(query)
 		} else {
 			verbose = false
 			// Create the table
-			if db.Config.DbType == DbTypePostgresql {
-				query = `CREATE TABLE IF NOT EXISTS "rdioScannerMeta" ("name" text NOT NULL UNIQUE PRIMARY KEY)`
-			} else {
-				query = "CREATE TABLE IF NOT EXISTS `rdioScannerMeta` (`name` varchar(255) NOT NULL UNIQUE PRIMARY KEY)"
-			}
+			query = `CREATE TABLE IF NOT EXISTS "rdioScannerMeta" ("name" text NOT NULL UNIQUE PRIMARY KEY)`
 			_, err = db.Sql.Exec(query)
 		}
 	}
@@ -865,11 +841,7 @@ func (db *Database) migrateWithSchema(name string, schemas []string, verbose boo
 		return fmt.Errorf("%s while doing %s", err.Error(), query)
 	}
 
-	if db.Config.DbType == DbTypePostgresql {
-		query = fmt.Sprintf(`SELECT COUNT(*) FROM "rdioScannerMeta" WHERE "name" = '%s'`, escapeQuotes(name))
-	} else {
-		query = fmt.Sprintf("SELECT COUNT(*) FROM `rdioScannerMeta` WHERE `name` = '%s'", escapeQuotes(name))
-	}
+	query = fmt.Sprintf(`SELECT COUNT(*) FROM "rdioScannerMeta" WHERE "name" = '%s'`, escapeQuotes(name))
 
 	if err = db.Sql.QueryRow(query).Scan(&count); err != nil {
 		return formatError(err, query)
@@ -888,11 +860,7 @@ func (db *Database) migrateWithSchema(name string, schemas []string, verbose boo
 				}
 			}
 
-			if db.Config.DbType == DbTypePostgresql {
-				query = fmt.Sprintf(`INSERT INTO "rdioScannerMeta" ("name") VALUES ('%s')`, escapeQuotes(name))
-			} else {
-				query = fmt.Sprintf("INSERT INTO `rdioScannerMeta` (`name`) VALUES ('%s')", escapeQuotes(name))
-			}
+			query = fmt.Sprintf(`INSERT INTO "rdioScannerMeta" ("name") VALUES ('%s')`, escapeQuotes(name))
 
 			if _, err = tx.Exec(query); err != nil {
 				tx.Rollback()
@@ -1523,24 +1491,12 @@ func migrateUsers(db *Database) error {
 		var exists bool
 		var err error
 
-		switch db.Config.DbType {
-		case DbTypePostgresql:
-			err = db.Sql.QueryRow(`SELECT EXISTS (
-				SELECT 1 FROM information_schema.columns 
-				WHERE table_name = 'users' 
-					AND table_schema = current_schema()
-					AND column_name = $1
-			)`, col.name).Scan(&exists)
-		case DbTypeMariadb, DbTypeMysql:
-			err = db.Sql.QueryRow(`SELECT EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = DATABASE()
-					AND table_name = ?
-					AND column_name = ?
-			)`, "users", col.name).Scan(&exists)
-		default:
-			err = fmt.Errorf("unsupported database type %s", db.Config.DbType)
-		}
+		err = db.Sql.QueryRow(`SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'users' 
+				AND table_schema = current_schema()
+				AND column_name = $1
+		)`, col.name).Scan(&exists)
 
 		if err != nil {
 			log.Printf("Warning: Could not check if column %s exists: %v", col.name, err)
@@ -1578,26 +1534,10 @@ func migrateUserPins(db *Database) error {
 		return nil
 	}
 
-	var addColumnQueries []string
-	switch db.Config.DbType {
-	case DbTypePostgresql:
-		addColumnQueries = []string{
-			`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pin" TEXT DEFAULT ''`,
-			`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pinExpiresAt" BIGINT DEFAULT 0`,
-			`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "connectionLimit" INTEGER DEFAULT 0`,
-		}
-	case DbTypeMariadb, DbTypeMysql:
-		addColumnQueries = []string{
-			`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pin" TEXT DEFAULT ''`,
-			`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pinExpiresAt" BIGINT DEFAULT 0`,
-			`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "connectionLimit" INT DEFAULT 0`,
-		}
-	default:
-		addColumnQueries = []string{
-			`ALTER TABLE "users" ADD COLUMN "pin" TEXT DEFAULT ''`,
-			`ALTER TABLE "users" ADD COLUMN "pinExpiresAt" BIGINT DEFAULT 0`,
-			`ALTER TABLE "users" ADD COLUMN "connectionLimit" INTEGER DEFAULT 0`,
-		}
+	addColumnQueries := []string{
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pin" TEXT DEFAULT ''`,
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pinExpiresAt" BIGINT DEFAULT 0`,
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "connectionLimit" INTEGER DEFAULT 0`,
 	}
 
 	for _, query := range addColumnQueries {
@@ -1691,29 +1631,15 @@ func migrateUserPins(db *Database) error {
 // migrateAlerts adds alerts table and related columns
 func migrateAlerts(db *Database) error {
 	// Add toneSetId column if it doesn't exist
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "toneSetId" text NOT NULL DEFAULT ''`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-		
-		// Create index on createdAt if it doesn't exist
-		query = `CREATE INDEX IF NOT EXISTS "alerts_created_idx" ON "alerts" ("createdAt")`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'alerts' AND column_name = 'toneSetId'`
-		const alterQuery = `ALTER TABLE "alerts" ADD COLUMN "toneSetId" text NOT NULL DEFAULT ''`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
-		
+	query := `ALTER TABLE "alerts" ADD COLUMN IF NOT EXISTS "toneSetId" text NOT NULL DEFAULT ''`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
+	}
+
+	// Create index on createdAt if it doesn't exist
+	query = `CREATE INDEX IF NOT EXISTS "alerts_created_idx" ON "alerts" ("createdAt")`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
 	return nil
 }
@@ -1721,24 +1647,10 @@ func migrateAlerts(db *Database) error {
 // migrateAlertPreferences adds userAlertPreferences table and related columns
 func migrateAlertPreferences(db *Database) error {
 
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "userAlertPreferences" ADD COLUMN IF NOT EXISTS "toneSetIds" text NOT NULL DEFAULT '[]'`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'userAlertPreferences' AND column_name = 'toneSetIds'`
-		const alterQuery = `ALTER TABLE "userAlertPreferences" ADD COLUMN "toneSetIds" text NOT NULL DEFAULT '[]'`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
+	query := `ALTER TABLE "userAlertPreferences" ADD COLUMN IF NOT EXISTS "toneSetIds" text NOT NULL DEFAULT '[]'`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
-
 	return nil
 }
 
@@ -1746,79 +1658,29 @@ func migrateAlertPreferences(db *Database) error {
 func migrateToneDetection(db *Database) error {
 
 	// Add columns to talkgroups if they don't exist
-	if db.Config.DbType == DbTypePostgresql {
-		queries := []string{
-			`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "toneDetectionEnabled" boolean NOT NULL DEFAULT false`,
-			`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "toneSets" text NOT NULL DEFAULT '[]'`,
+	queries := []string{
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "toneDetectionEnabled" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "toneSets" text NOT NULL DEFAULT '[]'`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			// Column might already exist, that's okay
+			log.Printf("migration note: %v", err)
 		}
-		for _, query := range queries {
-			if _, err := db.Sql.Exec(query); err != nil {
-				// Column might already exist, that's okay
-				log.Printf("migration note: %v", err)
-			}
-		}
+	}
 
-		// Add columns to calls if they don't exist
-		queries = []string{
-			`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "toneSequence" text NOT NULL DEFAULT '{}'`,
-			`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "hasTones" boolean NOT NULL DEFAULT false`,
-			`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "transcript" text NOT NULL DEFAULT ''`,
-			`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "transcriptConfidence" real NOT NULL DEFAULT 0.0`,
-			`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "transcriptionStatus" text NOT NULL DEFAULT 'pending'`,
-		}
-		for _, query := range queries {
-			if _, err := db.Sql.Exec(query); err != nil {
-				// Column might already exist, that's okay
-				log.Printf("migration note: %v", err)
-			}
-		}
-	} else {
-		// MySQL/SQLite - check if column exists first
-		var count int
-
-		// Check and add columns to talkgroups
-		queries := []struct {
-			checkQuery string
-			alterQuery string
-		}{
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'talkgroups' AND column_name = 'toneDetectionEnabled'`,
-				`ALTER TABLE "talkgroups" ADD COLUMN "toneDetectionEnabled" boolean NOT NULL DEFAULT false`,
-			},
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'talkgroups' AND column_name = 'toneSets'`,
-				`ALTER TABLE "talkgroups" ADD COLUMN "toneSets" text NOT NULL DEFAULT '[]'`,
-			},
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'calls' AND column_name = 'toneSequence'`,
-				`ALTER TABLE "calls" ADD COLUMN "toneSequence" text NOT NULL DEFAULT '{}'`,
-			},
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'calls' AND column_name = 'hasTones'`,
-				`ALTER TABLE "calls" ADD COLUMN "hasTones" boolean NOT NULL DEFAULT false`,
-			},
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'calls' AND column_name = 'transcript'`,
-				`ALTER TABLE "calls" ADD COLUMN "transcript" text NOT NULL DEFAULT ''`,
-			},
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'calls' AND column_name = 'transcriptConfidence'`,
-				`ALTER TABLE "calls" ADD COLUMN "transcriptConfidence" real NOT NULL DEFAULT 0.0`,
-			},
-			{
-				`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'calls' AND column_name = 'transcriptionStatus'`,
-				`ALTER TABLE "calls" ADD COLUMN "transcriptionStatus" text NOT NULL DEFAULT 'pending'`,
-			},
-		}
-
-		for _, q := range queries {
-			if err := db.Sql.QueryRow(q.checkQuery).Scan(&count); err == nil {
-				if count == 0 {
-					if _, err := db.Sql.Exec(q.alterQuery); err != nil {
-						log.Printf("migration note: %v", err)
-					}
-				}
-			}
+	// Add columns to calls if they don't exist
+	queries = []string{
+		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "toneSequence" text NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "hasTones" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "transcript" text NOT NULL DEFAULT ''`,
+		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "transcriptConfidence" real NOT NULL DEFAULT 0.0`,
+		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "transcriptionStatus" text NOT NULL DEFAULT 'pending'`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			// Column might already exist, that's okay
+			log.Printf("migration note: %v", err)
 		}
 	}
 
@@ -1827,90 +1689,42 @@ func migrateToneDetection(db *Database) error {
 
 // migrateUserGroupsMaxUsers adds maxUsers column to userGroups table
 func migrateUserGroupsMaxUsers(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "maxUsers" integer NOT NULL DEFAULT 0`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		// MySQL/MariaDB - check if column exists first
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'userGroups' AND column_name = 'maxUsers'`
-		const alterQuery = `ALTER TABLE "userGroups" ADD COLUMN "maxUsers" int NOT NULL DEFAULT 0`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
+	query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "maxUsers" integer NOT NULL DEFAULT 0`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
 	return nil
 }
 
 // migrateSystemAdmins adds systemAdmin column to users table and creates systemAlerts table
 func migrateSystemAdmins(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		// Add systemAdmin column to users table
-		query := `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "systemAdmin" boolean NOT NULL DEFAULT false`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (add systemAdmin): %v", err)
-		}
+	// Add systemAdmin column to users table
+	query := `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "systemAdmin" boolean NOT NULL DEFAULT false`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (add systemAdmin): %v", err)
+	}
 
-		// Create systemAlerts table
-		query = `CREATE TABLE IF NOT EXISTS "systemAlerts" (
-			"alertId" bigserial NOT NULL PRIMARY KEY,
-			"alertType" text NOT NULL,
-			"severity" text NOT NULL DEFAULT 'info',
-			"title" text NOT NULL,
-			"message" text NOT NULL,
-			"data" text NOT NULL DEFAULT '{}',
-			"createdAt" bigint NOT NULL,
-			"createdBy" bigint,
-			"dismissed" boolean NOT NULL DEFAULT false,
-			CONSTRAINT "systemAlerts_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "users" ("userId") ON DELETE SET NULL
-		)`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (create systemAlerts): %v", err)
-		}
+	// Create systemAlerts table
+	query = `CREATE TABLE IF NOT EXISTS "systemAlerts" (
+		"alertId" bigserial NOT NULL PRIMARY KEY,
+		"alertType" text NOT NULL,
+		"severity" text NOT NULL DEFAULT 'info',
+		"title" text NOT NULL,
+		"message" text NOT NULL,
+		"data" text NOT NULL DEFAULT '{}',
+		"createdAt" bigint NOT NULL,
+		"createdBy" bigint,
+		"dismissed" boolean NOT NULL DEFAULT false,
+		CONSTRAINT "systemAlerts_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "users" ("userId") ON DELETE SET NULL
+	)`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (create systemAlerts): %v", err)
+	}
 
-		// Create index for quick lookups
-		query = `CREATE INDEX IF NOT EXISTS "systemAlerts_createdAt_idx" ON "systemAlerts" ("createdAt" DESC)`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (create index): %v", err)
-		}
-
-	} else {
-		// MySQL/MariaDB
-		// Check and add systemAdmin column
-		var count int
-		checkQuery := `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'systemAdmin'`
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				alterQuery := `ALTER TABLE "users" ADD COLUMN "systemAdmin" boolean NOT NULL DEFAULT false`
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note (add systemAdmin): %v", err)
-				}
-			}
-		}
-
-		// Create systemAlerts table
-		createQuery := `CREATE TABLE IF NOT EXISTS "systemAlerts" (
-			"alertId" bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
-			"alertType" text NOT NULL,
-			"severity" text NOT NULL DEFAULT 'info',
-			"title" text NOT NULL,
-			"message" text NOT NULL,
-			"data" text NOT NULL,
-			"createdAt" bigint NOT NULL,
-			"createdBy" bigint,
-			"dismissed" boolean NOT NULL DEFAULT false,
-			FOREIGN KEY ("createdBy") REFERENCES "users" ("userId") ON DELETE SET NULL,
-			INDEX "systemAlerts_createdAt_idx" ("createdAt" DESC)
-		)`
-		if _, err := db.Sql.Exec(createQuery); err != nil {
-			log.Printf("migration note (create systemAlerts): %v", err)
-		}
+	// Create index for quick lookups
+	query = `CREATE INDEX IF NOT EXISTS "systemAlerts_createdAt_idx" ON "systemAlerts" ("createdAt" DESC)`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (create index): %v", err)
 	}
 
 	return nil
@@ -1918,51 +1732,25 @@ func migrateSystemAdmins(db *Database) error {
 
 // migrateRegistrationCodesCreatedBy makes createdBy nullable to allow system admin-created codes
 func migrateRegistrationCodesCreatedBy(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		// First drop the foreign key constraint
-		query := `ALTER TABLE "registrationCodes" DROP CONSTRAINT IF EXISTS "registrationCodes_createdBy_fkey"`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (dropping constraint): %v", err)
-		}
-		
-		// Make column nullable
-		query = `ALTER TABLE "registrationCodes" ALTER COLUMN "createdBy" DROP NOT NULL`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (making nullable): %v", err)
-		}
-		
-		// Re-add foreign key constraint with ON DELETE SET NULL
-		query = `ALTER TABLE "registrationCodes" ADD CONSTRAINT "registrationCodes_createdBy_fkey" 
-		         FOREIGN KEY ("createdBy") REFERENCES "users" ("userId") ON DELETE SET NULL ON UPDATE CASCADE`
-		if _, err := db.Sql.Exec(query); err != nil {
-			// Constraint might already exist, that's okay
-			if !strings.Contains(err.Error(), "already exists") {
-				log.Printf("migration note (adding constraint): %v", err)
-			}
-		}
-	} else {
-		// MySQL/MariaDB
-		// Drop foreign key constraint
-		query := `ALTER TABLE "registrationCodes" DROP FOREIGN KEY "registrationCodes_createdBy_fkey"`
-		if _, err := db.Sql.Exec(query); err != nil {
-			// Constraint might not exist or have different name, that's okay
-			log.Printf("migration note (dropping constraint): %v", err)
-		}
-		
-		// Make column nullable
-		query = `ALTER TABLE "registrationCodes" MODIFY COLUMN "createdBy" bigint NULL`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (making nullable): %v", err)
-		}
-		
-		// Re-add foreign key constraint
-		query = `ALTER TABLE "registrationCodes" ADD CONSTRAINT "registrationCodes_createdBy_fkey" 
-		         FOREIGN KEY ("createdBy") REFERENCES "users" ("userId") ON DELETE SET NULL ON UPDATE CASCADE`
-		if _, err := db.Sql.Exec(query); err != nil {
-			// Constraint might already exist, that's okay
-			if !strings.Contains(err.Error(), "Duplicate foreign key") {
-				log.Printf("migration note (adding constraint): %v", err)
-			}
+	// First drop the foreign key constraint
+	query := `ALTER TABLE "registrationCodes" DROP CONSTRAINT IF EXISTS "registrationCodes_createdBy_fkey"`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (dropping constraint): %v", err)
+	}
+
+	// Make column nullable
+	query = `ALTER TABLE "registrationCodes" ALTER COLUMN "createdBy" DROP NOT NULL`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (making nullable): %v", err)
+	}
+
+	// Re-add foreign key constraint with ON DELETE SET NULL
+	query = `ALTER TABLE "registrationCodes" ADD CONSTRAINT "registrationCodes_createdBy_fkey" 
+	         FOREIGN KEY ("createdBy") REFERENCES "users" ("userId") ON DELETE SET NULL ON UPDATE CASCADE`
+	if _, err := db.Sql.Exec(query); err != nil {
+		// Constraint might already exist, that's okay
+		if !strings.Contains(err.Error(), "already exists") {
+			log.Printf("migration note (adding constraint): %v", err)
 		}
 	}
 	return nil
@@ -1970,111 +1758,49 @@ func migrateRegistrationCodesCreatedBy(db *Database) error {
 
 // migrateUserInvitationsInvitedBy makes invitedBy nullable to allow system admin-created invitations
 func migrateUserInvitationsInvitedBy(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		// First drop the foreign key constraint
-		query := `ALTER TABLE "userInvitations" DROP CONSTRAINT IF EXISTS "userInvitations_invitedBy_fkey"`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (dropping constraint): %v", err)
-		}
-		
-		// Make column nullable
-		query = `ALTER TABLE "userInvitations" ALTER COLUMN "invitedBy" DROP NOT NULL`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (making nullable): %v", err)
-		}
-		
-		// Re-add foreign key constraint with ON DELETE SET NULL
-		query = `ALTER TABLE "userInvitations" ADD CONSTRAINT "userInvitations_invitedBy_fkey" 
-		         FOREIGN KEY ("invitedBy") REFERENCES "users" ("userId") ON DELETE SET NULL ON UPDATE CASCADE`
-		if _, err := db.Sql.Exec(query); err != nil {
-			// Constraint might already exist, that's okay
-			if !strings.Contains(err.Error(), "already exists") {
-				log.Printf("migration note (adding constraint): %v", err)
-			}
-		}
-	} else {
-		// MySQL/MariaDB
-		// Drop foreign key constraint
-		query := `ALTER TABLE userInvitations DROP FOREIGN KEY userInvitations_invitedBy_fkey`
-		if _, err := db.Sql.Exec(query); err != nil {
-			// Constraint might not exist or have different name, that's okay
-			log.Printf("migration note (dropping constraint): %v", err)
-		}
-		
-		// Make column nullable
-		query = `ALTER TABLE userInvitations MODIFY COLUMN invitedBy bigint NULL`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note (making nullable): %v", err)
-		}
-		
-		// Re-add foreign key constraint with ON DELETE SET NULL
-		query = `ALTER TABLE userInvitations ADD CONSTRAINT userInvitations_invitedBy_fkey 
-		         FOREIGN KEY (invitedBy) REFERENCES users(userId) ON DELETE SET NULL ON UPDATE CASCADE`
-		if _, err := db.Sql.Exec(query); err != nil {
-			// Constraint might already exist, that's okay
-			if !strings.Contains(err.Error(), "Duplicate key name") {
-				log.Printf("migration note (adding constraint): %v", err)
-			}
+	// First drop the foreign key constraint
+	query := `ALTER TABLE "userInvitations" DROP CONSTRAINT IF EXISTS "userInvitations_invitedBy_fkey"`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (dropping constraint): %v", err)
+	}
+
+	// Make column nullable
+	query = `ALTER TABLE "userInvitations" ALTER COLUMN "invitedBy" DROP NOT NULL`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (making nullable): %v", err)
+	}
+
+	// Re-add foreign key constraint with ON DELETE SET NULL
+	query = `ALTER TABLE "userInvitations" ADD CONSTRAINT "userInvitations_invitedBy_fkey" 
+	         FOREIGN KEY ("invitedBy") REFERENCES "users" ("userId") ON DELETE SET NULL ON UPDATE CASCADE`
+	if _, err := db.Sql.Exec(query); err != nil {
+		// Constraint might already exist, that's okay
+		if !strings.Contains(err.Error(), "already exists") {
+			log.Printf("migration note (adding constraint): %v", err)
 		}
 	}
-	
+
 	return nil
 }
 
 // migrateUserGroupsAllowAddExistingUsers adds allowAddExistingUsers column to userGroups table
 func migrateUserGroupsAllowAddExistingUsers(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "allowAddExistingUsers" boolean NOT NULL DEFAULT false`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		// MySQL/MariaDB - check if column exists first
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'userGroups' AND column_name = 'allowAddExistingUsers'`
-		const alterQuery = `ALTER TABLE "userGroups" ADD COLUMN "allowAddExistingUsers" boolean NOT NULL DEFAULT false`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
+	query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "allowAddExistingUsers" boolean NOT NULL DEFAULT false`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
 	return nil
 }
 
 // migrateUserGroupsBillingFields adds stripePriceId and billingMode columns to userGroups table
 func migrateUserGroupsBillingFields(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		queries := []string{
-			`ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "stripePriceId" text NOT NULL DEFAULT ''`,
-			`ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "billingMode" text NOT NULL DEFAULT 'all_users'`,
-		}
-		for _, query := range queries {
-			if _, err := db.Sql.Exec(query); err != nil {
-				log.Printf("migration note: %v", err)
-			}
-		}
-	} else {
-		// MySQL/MariaDB - check if columns exist first
-		columns := []struct {
-			name  string
-			query string
-		}{
-			{"stripePriceId", `ALTER TABLE "userGroups" ADD COLUMN "stripePriceId" text NOT NULL DEFAULT ''`},
-			{"billingMode", `ALTER TABLE "userGroups" ADD COLUMN "billingMode" text NOT NULL DEFAULT 'all_users'`},
-		}
-		for _, col := range columns {
-			const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'userGroups' AND column_name = ?`
-			var count int
-			if err := db.Sql.QueryRow(checkQuery, col.name).Scan(&count); err == nil {
-				if count == 0 {
-					if _, err := db.Sql.Exec(col.query); err != nil {
-						log.Printf("migration note: %v", err)
-					}
-				}
-			}
+	queries := []string{
+		`ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "stripePriceId" text NOT NULL DEFAULT ''`,
+		`ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "billingMode" text NOT NULL DEFAULT 'all_users'`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note: %v", err)
 		}
 	}
 	return nil
@@ -2082,69 +1808,27 @@ func migrateUserGroupsBillingFields(db *Database) error {
 
 // migrateUserAccountExpiresAt adds accountExpiresAt column to users table
 func migrateUserAccountExpiresAt(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "accountExpiresAt" bigint NOT NULL DEFAULT 0`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		// MySQL/MariaDB - check if column exists first
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'accountExpiresAt'`
-		const alterQuery = `ALTER TABLE "users" ADD COLUMN "accountExpiresAt" bigint NOT NULL DEFAULT 0`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
+	query := `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "accountExpiresAt" bigint NOT NULL DEFAULT 0`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
 	return nil
 }
 
 // migrateUserGroupsPricingOptions adds pricingOptions column to userGroups table
 func migrateUserGroupsPricingOptions(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "pricingOptions" text NOT NULL DEFAULT ''`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		// MySQL/MariaDB - check if column exists first
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'userGroups' AND column_name = 'pricingOptions'`
-		const alterQuery = `ALTER TABLE "userGroups" ADD COLUMN "pricingOptions" text NOT NULL DEFAULT ''`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
+	query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "pricingOptions" text NOT NULL DEFAULT ''`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
 	return nil
 }
 
 // migrateUserGroupsCollectSalesTax adds collectSalesTax column to userGroups table
 func migrateUserGroupsCollectSalesTax(db *Database) error {
-	if db.Config.DbType == DbTypePostgresql {
-		query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "collectSalesTax" boolean NOT NULL DEFAULT false`
-		if _, err := db.Sql.Exec(query); err != nil {
-			log.Printf("migration note: %v", err)
-		}
-	} else {
-		// MySQL/MariaDB - check if column exists first
-		const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'userGroups' AND column_name = 'collectSalesTax'`
-		const alterQuery = `ALTER TABLE "userGroups" ADD COLUMN "collectSalesTax" boolean NOT NULL DEFAULT false`
-		var count int
-		if err := db.Sql.QueryRow(checkQuery).Scan(&count); err == nil {
-			if count == 0 {
-				if _, err := db.Sql.Exec(alterQuery); err != nil {
-					log.Printf("migration note: %v", err)
-				}
-			}
-		}
+	query := `ALTER TABLE "userGroups" ADD COLUMN IF NOT EXISTS "collectSalesTax" boolean NOT NULL DEFAULT false`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note: %v", err)
 	}
 	return nil
 }
@@ -2156,37 +1840,14 @@ func migrateTransferRequestsApprovalTokens(db *Database) error {
 		return nil // Table doesn't exist yet, schema will create it with columns
 	}
 
-	if db.Config.DbType == DbTypePostgresql {
-		queries := []string{
-			`ALTER TABLE "transferRequests" ADD COLUMN IF NOT EXISTS "approvalToken" text NOT NULL DEFAULT ''`,
-			`ALTER TABLE "transferRequests" ADD COLUMN IF NOT EXISTS "approvalTokenExpiresAt" bigint NOT NULL DEFAULT 0`,
-			`ALTER TABLE "transferRequests" ADD COLUMN IF NOT EXISTS "approvalTokenUsed" boolean NOT NULL DEFAULT false`,
-		}
-		for _, query := range queries {
-			if _, err := db.Sql.Exec(query); err != nil {
-				log.Printf("migration note: %v", err)
-			}
-		}
-	} else {
-		// MySQL/MariaDB - check if columns exist first
-		columns := []struct {
-			name  string
-			query string
-		}{
-			{"approvalToken", `ALTER TABLE "transferRequests" ADD COLUMN "approvalToken" text NOT NULL DEFAULT ''`},
-			{"approvalTokenExpiresAt", `ALTER TABLE "transferRequests" ADD COLUMN "approvalTokenExpiresAt" bigint NOT NULL DEFAULT 0`},
-			{"approvalTokenUsed", `ALTER TABLE "transferRequests" ADD COLUMN "approvalTokenUsed" boolean NOT NULL DEFAULT false`},
-		}
-		for _, col := range columns {
-			const checkQuery = `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'transferRequests' AND column_name = ?`
-			var count int
-			if err := db.Sql.QueryRow(checkQuery, col.name).Scan(&count); err == nil {
-				if count == 0 {
-					if _, err := db.Sql.Exec(col.query); err != nil {
-						log.Printf("migration note: %v", err)
-					}
-				}
-			}
+	queries := []string{
+		`ALTER TABLE "transferRequests" ADD COLUMN IF NOT EXISTS "approvalToken" text NOT NULL DEFAULT ''`,
+		`ALTER TABLE "transferRequests" ADD COLUMN IF NOT EXISTS "approvalTokenExpiresAt" bigint NOT NULL DEFAULT 0`,
+		`ALTER TABLE "transferRequests" ADD COLUMN IF NOT EXISTS "approvalTokenUsed" boolean NOT NULL DEFAULT false`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note: %v", err)
 		}
 	}
 	return nil
@@ -2210,27 +1871,28 @@ func migrateCallsPerformanceIndexes(db *Database) error {
 	// - (systemId, talkgroupId, timestamp) - critical for system+talkgroup filters ordered by date
 	//
 	// Note: Indexes automatically apply to ALL data in the table - both existing rows and all future inserts.
-	// MySQL/PostgreSQL will build the index from existing data when created, then automatically maintain
+	// PostgreSQL will build the index from existing data when created, then automatically maintain
 	// it for all new call data as it's inserted.
 
-	if db.Config.DbType == DbTypePostgresql {
-		queries = []string{
-			// Index for system-only queries with date ordering
-			`CREATE INDEX IF NOT EXISTS "calls_system_timestamp_idx" ON "calls" ("systemId", "timestamp")`,
-			// Index for system+talkgroup queries with date ordering
-			`CREATE INDEX IF NOT EXISTS "calls_system_talkgroup_timestamp_idx" ON "calls" ("systemId", "talkgroupId", "timestamp")`,
-		}
-	} else {
-		// MySQL/MariaDB
-		queries = []string{
-			// Index for system-only queries with date ordering
-			"CREATE INDEX `calls_system_timestamp_idx` ON `calls` (`systemId`, `timestamp`)",
-			// Index for system+talkgroup queries with date ordering
-			"CREATE INDEX `calls_system_talkgroup_timestamp_idx` ON `calls` (`systemId`, `talkgroupId`, `timestamp`)",
-		}
+	queries = []string{
+		// Index for system-only queries with date ordering
+		`CREATE INDEX IF NOT EXISTS "calls_system_timestamp_idx" ON "calls" ("systemId", "timestamp")`,
+		// Index for system+talkgroup queries with date ordering
+		`CREATE INDEX IF NOT EXISTS "calls_system_talkgroup_timestamp_idx" ON "calls" ("systemId", "talkgroupId", "timestamp")`,
 	}
 
 	return db.migrateWithSchema("20250101000000-optimize-search-performance", queries, verbose)
+}
+
+// migrateCallUnitsIndex adds index on callUnits table for fast lookup by callId
+// This dramatically speeds up search queries that fetch the source (unitRef) for each call
+// Before: 23 seconds (full table scan of 4.5M rows, 201 times)
+// After: 55ms (index lookup)
+func migrateCallUnitsIndex(db *Database) error {
+	queries := []string{
+		`CREATE INDEX IF NOT EXISTS "callUnits_callId_idx" ON "callUnits" ("callId", "offset")`,
+	}
+	return db.migrateWithSchema("20250127000000-callunits-callid-index", queries, true)
 }
 
 // migrateTagsGroupsUniqueLabels adds unique constraints on the label column for tags and groups tables
@@ -2245,11 +1907,7 @@ func migrateTagsGroupsUniqueLabels(db *Database, verbose bool) error {
 	formatError := errorFormatter("migration", "migrateTagsGroupsUniqueLabels")
 
 	// Check if migration has already been applied
-	if db.Config.DbType == DbTypePostgresql {
-		query = `SELECT COUNT(*) FROM "rdioScannerMeta" WHERE "name" = '20251215000000-tags-groups-unique-labels'`
-	} else {
-		query = `SELECT COUNT(*) FROM rdioScannerMeta WHERE name = '20251215000000-tags-groups-unique-labels'`
-	}
+	query = `SELECT COUNT(*) FROM "rdioScannerMeta" WHERE "name" = '20251215000000-tags-groups-unique-labels'`
 
 	if err = db.Sql.QueryRow(query).Scan(&count); err != nil {
 		return formatError(err, query)
@@ -2264,49 +1922,25 @@ func migrateTagsGroupsUniqueLabels(db *Database, verbose bool) error {
 	}
 
 	// Clean up duplicate tags - keep the first occurrence of each label
-	if db.Config.DbType == DbTypePostgresql {
-		query = `DELETE FROM "tags" WHERE "tagId" NOT IN (
-			SELECT MIN("tagId") FROM "tags" GROUP BY "label"
-		)`
-	} else {
-		query = `DELETE FROM tags WHERE tagId NOT IN (
-			SELECT * FROM (
-				SELECT MIN(tagId) FROM tags GROUP BY label
-			) AS keep_tags
-		)`
-	}
+	query = `DELETE FROM "tags" WHERE "tagId" NOT IN (
+		SELECT MIN("tagId") FROM "tags" GROUP BY "label"
+	)`
 	if _, err = db.Sql.Exec(query); err != nil {
 		return formatError(err, "removing duplicate tags")
 	}
 
 	// Clean up duplicate groups - keep the first occurrence of each label
-	if db.Config.DbType == DbTypePostgresql {
-		query = `DELETE FROM "groups" WHERE "groupId" NOT IN (
-			SELECT MIN("groupId") FROM "groups" GROUP BY "label"
-		)`
-	} else {
-		query = `DELETE FROM groups WHERE groupId NOT IN (
-			SELECT * FROM (
-				SELECT MIN(groupId) FROM groups GROUP BY label
-			) AS keep_groups
-		)`
-	}
+	query = `DELETE FROM "groups" WHERE "groupId" NOT IN (
+		SELECT MIN("groupId") FROM "groups" GROUP BY "label"
+	)`
 	if _, err = db.Sql.Exec(query); err != nil {
 		return formatError(err, "removing duplicate groups")
 	}
 
 	// Now create the unique indexes
-	var queries []string
-	if db.Config.DbType == DbTypePostgresql {
-		queries = []string{
-			`CREATE UNIQUE INDEX IF NOT EXISTS "tags_label_unique" ON "tags" ("label")`,
-			`CREATE UNIQUE INDEX IF NOT EXISTS "groups_label_unique" ON "groups" ("label")`,
-		}
-	} else {
-		queries = []string{
-			`CREATE UNIQUE INDEX tags_label_unique ON tags (label(255))`,
-			`CREATE UNIQUE INDEX groups_label_unique ON groups (label(255))`,
-		}
+	queries := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS "tags_label_unique" ON "tags" ("label")`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "groups_label_unique" ON "groups" ("label")`,
 	}
 
 	return db.migrateWithSchema("20251215000000-tags-groups-unique-labels", queries, verbose)
@@ -2325,42 +1959,14 @@ func migrateRemoveAlertTones(db *Database) error {
 	verbose := false
 	if count == 0 {
 		verbose = true
-		log.Printf("running database migration 20251219000000-remove-alert-tones")
 	}
 
 	// Drop alert columns from systems, talkgroups, tags, and groups
-	var queries []string
-	if db.Config.DbType == DbTypePostgresql {
-		queries = []string{
-			`ALTER TABLE "systems" DROP COLUMN IF EXISTS "alert"`,
-			`ALTER TABLE "talkgroups" DROP COLUMN IF EXISTS "alert"`,
-			`ALTER TABLE "tags" DROP COLUMN IF EXISTS "alert"`,
-			`ALTER TABLE "groups" DROP COLUMN IF EXISTS "alert"`,
-		}
-	} else {
-		// MySQL/MariaDB
-		// First check if columns exist before trying to drop them
-		var exists int
-		
-		// Drop systems.alert if exists
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'systems' AND COLUMN_NAME = 'alert'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE systems DROP COLUMN alert`)
-		}
-		
-		// Drop talkgroups.alert if exists
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'talkgroups' AND COLUMN_NAME = 'alert'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE talkgroups DROP COLUMN alert`)
-		}
-		
-		// Drop tags.alert if exists
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tags' AND COLUMN_NAME = 'alert'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE tags DROP COLUMN alert`)
-		}
-		
-		// Drop groups.alert if exists
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'groups' AND COLUMN_NAME = 'alert'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE groups DROP COLUMN alert`)
-		}
+	queries := []string{
+		`ALTER TABLE "systems" DROP COLUMN IF EXISTS "alert"`,
+		`ALTER TABLE "talkgroups" DROP COLUMN IF EXISTS "alert"`,
+		`ALTER TABLE "tags" DROP COLUMN IF EXISTS "alert"`,
+		`ALTER TABLE "groups" DROP COLUMN IF EXISTS "alert"`,
 	}
 
 	if len(queries) == 0 {
@@ -2387,37 +1993,14 @@ func migrateRemoveLedColors(db *Database) error {
 	verbose := false
 	if count == 0 {
 		verbose = true
-		log.Printf("running database migration 20251219000001-remove-led-colors")
 	}
 
 	// Drop led columns from systems, talkgroups, tags, and groups
-	var queries []string
-	if db.Config.DbType == DbTypePostgresql {
-		queries = []string{
-			`ALTER TABLE "systems" DROP COLUMN IF EXISTS "led"`,
-			`ALTER TABLE "talkgroups" DROP COLUMN IF EXISTS "led"`,
-			`ALTER TABLE "tags" DROP COLUMN IF EXISTS "led"`,
-			`ALTER TABLE "groups" DROP COLUMN IF EXISTS "led"`,
-		}
-	} else {
-		// MySQL/MariaDB
-		var exists int
-		
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'systems' AND COLUMN_NAME = 'led'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE systems DROP COLUMN led`)
-		}
-		
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'talkgroups' AND COLUMN_NAME = 'led'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE talkgroups DROP COLUMN led`)
-		}
-		
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tags' AND COLUMN_NAME = 'led'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE tags DROP COLUMN led`)
-		}
-		
-		if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'groups' AND COLUMN_NAME = 'led'`).Scan(&exists); err == nil && exists > 0 {
-			queries = append(queries, `ALTER TABLE groups DROP COLUMN led`)
-		}
+	queries := []string{
+		`ALTER TABLE "systems" DROP COLUMN IF EXISTS "led"`,
+		`ALTER TABLE "talkgroups" DROP COLUMN IF EXISTS "led"`,
+		`ALTER TABLE "tags" DROP COLUMN IF EXISTS "led"`,
+		`ALTER TABLE "groups" DROP COLUMN IF EXISTS "led"`,
 	}
 
 	if len(queries) == 0 {
@@ -2428,4 +2011,116 @@ func migrateRemoveLedColors(db *Database) error {
 	}
 
 	return db.migrateWithSchema("20251219000001-remove-led-colors", queries, verbose)
+}
+
+// Migration to fix invalid user timestamps (empty strings or invalid values)
+func migrateFixUserTimestamps(db *Database) error {
+	formatError := errorFormatter("migration", "migrateFixUserTimestamps")
+
+	// Check if migration already ran
+	var count int
+	if err := db.Sql.QueryRow(`SELECT COUNT(*) FROM "rdioScannerMeta" WHERE "name" = '20251228000000-fix-user-timestamps'`).Scan(&count); err != nil {
+		return formatError(err, "checking migration status")
+	}
+
+	if count > 0 {
+		return nil // Already migrated
+	}
+
+	log.Printf("running database migration 20251228000000-fix-user-timestamps")
+
+	// Fix users with empty or invalid createdAt timestamps
+	// Set to current time if empty, invalid, or 0
+	currentTime := time.Now().Unix()
+
+	// Fix createdAt: Set to current time if empty or invalid
+	query := fmt.Sprintf(`UPDATE "users" SET "createdAt" = '%d' WHERE "createdAt" = '' OR "createdAt" = '0'`, currentTime)
+	if _, err := db.Sql.Exec(query); err != nil {
+		return formatError(err, "fixing createdAt timestamps")
+	}
+
+	// Fix lastLogin: Set to '0' if empty (0 means never logged in)
+	query = `UPDATE "users" SET "lastLogin" = '0' WHERE "lastLogin" = ''`
+	if _, err := db.Sql.Exec(query); err != nil {
+		return formatError(err, "fixing lastLogin timestamps")
+	}
+
+	// Record migration as completed
+	query = `INSERT INTO "rdioScannerMeta" ("name") VALUES ('20251228000000-fix-user-timestamps')`
+	if _, err := db.Sql.Exec(query); err != nil {
+		return formatError(err, "recording migration")
+	}
+
+	log.Printf("Fixed user timestamps - set createdAt to current time for %d users", currentTime)
+	return nil
+}
+
+// fixAutoIncrementSequences - Resets auto-increment sequences to prevent duplicate key errors
+// This ensures that all sequences are set to MAX(id) + 1 for their respective tables
+func fixAutoIncrementSequences(db *Database) error {
+	// Only applicable to PostgreSQL (SQLite handles this automatically)
+	if db.Config.DbType != DbTypePostgresql {
+		return nil
+	}
+
+	// List of tables and their ID columns/sequence names that use sequences
+	// Use exact table names as they appear in the database (with proper casing)
+	sequences := map[string]struct {
+		table    string
+		idColumn string
+	}{
+		"apikeys":           {table: "apikeys", idColumn: "apikeyId"},
+		"calls":             {table: "calls", idColumn: "callId"},
+		"groups":            {table: "groups", idColumn: "groupId"},
+		"systems":           {table: "systems", idColumn: "systemId"},
+		"tags":              {table: "tags", idColumn: "tagId"},
+		"talkgroups":        {table: "talkgroups", idColumn: "talkgroupId"},
+		"users":             {table: "users", idColumn: "userId"},
+		"userGroups":        {table: "userGroups", idColumn: "userGroupId"},
+		"registrationCodes": {table: "registrationCodes", idColumn: "registrationCodeId"},
+		"downstreams":       {table: "downstreams", idColumn: "downstreamId"},
+	}
+
+	for _, seq := range sequences {
+		// First, check if this is actually a sequence-based column
+		// Query to find the actual sequence name for this column
+		// Use double quotes to preserve case sensitivity
+		var seqName sql.NullString
+		query := fmt.Sprintf(`
+			SELECT pg_get_serial_sequence('"%s"', '%s')
+		`, seq.table, seq.idColumn)
+
+		if err := db.Sql.QueryRow(query).Scan(&seqName); err != nil {
+			// Silently skip if sequence not found
+			continue
+		}
+
+		// If no sequence found, skip (might be a regular column)
+		if !seqName.Valid || seqName.String == "" {
+			continue
+		}
+
+		// Get the current max ID from the table
+		var maxId sql.NullInt64
+		query = fmt.Sprintf(`SELECT MAX("%s") FROM "%s"`, seq.idColumn, seq.table)
+		if err := db.Sql.QueryRow(query).Scan(&maxId); err != nil {
+			// Silently skip if error getting max ID
+			continue
+		}
+
+		// Set the sequence to max + 1 (or 1 if table is empty)
+		nextVal := int64(1)
+		if maxId.Valid && maxId.Int64 > 0 {
+			nextVal = maxId.Int64 + 1
+		}
+
+		// Use the actual sequence name returned by pg_get_serial_sequence
+		query = fmt.Sprintf(`SELECT setval('%s', %d, false)`, seqName.String, nextVal)
+		if _, err := db.Sql.Exec(query); err != nil {
+			// Silently skip if error resetting sequence
+			continue
+		}
+	}
+
+	return nil
 }

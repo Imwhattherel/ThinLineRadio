@@ -76,6 +76,12 @@ type DefaultOptions struct {
 	emailMailgunAPIKey          string
 	emailMailgunDomain          string
 	emailMailgunAPIBase         string
+	emailSmtpHost               string
+	emailSmtpPort               int
+	emailSmtpUsername           string
+	emailSmtpPassword           string
+	emailSmtpUseTLS             bool
+	emailSmtpSkipVerify         bool
 	emailSmtpFromEmail          string
 	emailSmtpFromName           string
 	emailLogoFilename           string
@@ -165,6 +171,12 @@ var defaults = Defaults{
 		emailMailgunAPIKey:          "",
 		emailMailgunDomain:          "",
 		emailMailgunAPIBase:         "https://api.mailgun.net",
+		emailSmtpHost:               "",
+		emailSmtpPort:               587,
+		emailSmtpUsername:           "",
+		emailSmtpPassword:           "",
+		emailSmtpUseTLS:             true,
+		emailSmtpSkipVerify:         false,
 		emailSmtpFromEmail:          "",
 		emailSmtpFromName:           "",
 		emailLogoFilename:           "",

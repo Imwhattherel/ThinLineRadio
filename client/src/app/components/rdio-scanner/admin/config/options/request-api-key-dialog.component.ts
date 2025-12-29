@@ -90,9 +90,9 @@ interface SelectedStateData {
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="full-width">
-            <mat-label>Rdio-Scanner Server URL *</mat-label>
+            <mat-label>Thinline Radio Server URL *</mat-label>
             <input matInput formControlName="serverURL" placeholder="https://test.thinlineds.com" required>
-            <mat-hint>Your rdio-scanner server address</mat-hint>
+            <mat-hint>Your Thinline Radio server address</mat-hint>
             <mat-error *ngIf="apiKeyForm.get('serverURL')?.hasError('required')">
               Server URL is required
             </mat-error>
@@ -240,11 +240,6 @@ interface SelectedStateData {
               <mat-icon>info</mat-icon>
               You will receive up to 5 email notifications if your server goes offline. Notifications will stop once your server comes back online.
             </p>
-          </div>
-
-          <!-- Cloudflare Turnstile Widget -->
-          <div *ngIf="!isUpdateMode" style="margin: 20px 0;">
-            <div id="turnstile-widget" style="display: flex; justify-content: center;"></div>
           </div>
 
           <div *ngIf="errorMessage" class="error-message">
@@ -423,9 +418,6 @@ export class RequestAPIKeyDialogComponent implements OnInit {
   verificationError = '';
   verifying = false;
   pendingRequestData: any = null;
-  turnstileToken: string = '';
-  turnstileWidgetId: any = null;
-  turnstileSiteKey = '0x4AAAAAACGpw-G3e-uftHly';
   
   // Multi-state selection
   selectedStates: SelectedStateData[] = [];
@@ -485,11 +477,6 @@ export class RequestAPIKeyDialogComponent implements OnInit {
     const seed = 'thinline-radio-relay-auth-2026';
     const encoder = new TextEncoder();
     const data = encoder.encode(seed);
-
-    // Initialize Turnstile widget if not in update mode
-    if (!this.isUpdateMode) {
-      this.loadTurnstileScript();
-    }
     
     try {
       const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -820,10 +807,6 @@ export class RequestAPIKeyDialogComponent implements OnInit {
 
 
   onCancel(): void {
-    // Reset Turnstile widget if it exists
-    if (this.turnstileWidgetId !== null && (window as any).turnstile) {
-      (window as any).turnstile.reset(this.turnstileWidgetId);
-    }
     this.dialogRef.close(null);
   }
 
@@ -857,12 +840,6 @@ export class RequestAPIKeyDialogComponent implements OnInit {
         });
         return;
       }
-    }
-
-    // Check Turnstile token for new registrations
-    if (!this.isUpdateMode && !this.turnstileToken) {
-      this.errorMessage = 'Please complete the CAPTCHA verification';
-      return;
     }
 
     this.loading = true;
@@ -904,8 +881,7 @@ export class RequestAPIKeyDialogComponent implements OnInit {
       city: cityValue,
       is_private: formValue.isPrivate || false,
       offers_transcribed_alerts: formValue.offersTranscribedAlerts,
-      notify_on_offline: formValue.notifyOnOffline || false,
-      turnstile_token: this.turnstileToken
+      notify_on_offline: formValue.notifyOnOffline || false
     };
 
     try {
@@ -962,46 +938,6 @@ export class RequestAPIKeyDialogComponent implements OnInit {
     } finally {
       this.loading = false;
     }
-  }
-
-  loadTurnstileScript(): void {
-    // Check if script is already loaded
-    if ((window as any).turnstile) {
-      this.initTurnstileWidget();
-      return;
-    }
-
-    // Load Turnstile script (latest version)
-    const script = document.createElement('script');
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      this.initTurnstileWidget();
-    };
-    document.head.appendChild(script);
-  }
-
-  initTurnstileWidget(): void {
-    // Wait for DOM to be ready
-    setTimeout(() => {
-      const widgetContainer = document.getElementById('turnstile-widget');
-      if (widgetContainer && (window as any).turnstile) {
-        this.turnstileWidgetId = (window as any).turnstile.render(widgetContainer, {
-          sitekey: this.turnstileSiteKey,
-          callback: (token: string) => {
-            this.turnstileToken = token;
-          },
-          'error-callback': () => {
-            this.turnstileToken = '';
-            this.errorMessage = 'CAPTCHA verification failed. Please try again.';
-          },
-          'expired-callback': () => {
-            this.turnstileToken = '';
-          }
-        });
-      }
-    }, 100);
   }
 
   async onVerifyDomain(): Promise<void> {

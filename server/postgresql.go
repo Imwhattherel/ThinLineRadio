@@ -138,6 +138,9 @@ var PostgresqlSchema = []string{
 	
 	// Migration: Change unitRef from integer to bigint for large radio unit IDs
 	`ALTER TABLE "callUnits" ALTER COLUMN "unitRef" TYPE bigint;`,
+	
+	// Index for fast lookup of units by callId (critical for search performance)
+	`CREATE INDEX IF NOT EXISTS "callUnits_callId_idx" ON "callUnits" ("callId", "offset");`,
 
 	`CREATE TABLE IF NOT EXISTS "delayed" (
     "delayedId" bigserial NOT NULL PRIMARY KEY,

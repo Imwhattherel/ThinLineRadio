@@ -401,19 +401,23 @@ func (controller *Controller) IngestCall(call *Call) {
 				TagId:        tagId,
 			}
 
-			// Update label and name if provided (v6 style)
-			if len(call.Meta.TalkgroupLabel) > 0 && talkgroup.Label != call.Meta.TalkgroupLabel {
-				populated = true
-				talkgroup.Label = call.Meta.TalkgroupLabel
-			}
+		// Update label and name if provided (v6 style)
+		if len(call.Meta.TalkgroupLabel) > 0 && talkgroup.Label != call.Meta.TalkgroupLabel {
+			populated = true
+			talkgroup.Label = call.Meta.TalkgroupLabel
+		}
 
-			if len(call.Meta.TalkgroupName) > 0 && talkgroup.Name != call.Meta.TalkgroupName {
-				populated = true
-				talkgroup.Name = call.Meta.TalkgroupName
-			} else if len(talkgroup.Name) == 0 {
-				populated = true
-				talkgroup.Name = talkgroup.Label
-			}
+		// Set Name: use TalkgroupName if available, otherwise fallback to Label
+		// This fixes SDR Trunk uploads that only send label/tgid but no name
+		if len(call.Meta.TalkgroupName) > 0 {
+			populated = true
+			talkgroup.Name = call.Meta.TalkgroupName
+		} else {
+			// When TalkgroupName is not available, use Label as fallback
+			// instead of leaving it as the talkgroup ID number
+			populated = true
+			talkgroup.Name = talkgroup.Label
+		}
 
 			system.Talkgroups.List = append(system.Talkgroups.List, talkgroup)
 		}
@@ -1870,12 +1874,7 @@ func (controller *Controller) sendAvailableCallsToClient(client *Client) {
 		err  error
 	)
 
-	var query string
-	if controller.Database.Config.DbType == DbTypePostgresql {
-		query = `SELECT c."callId", c."timestamp" FROM "calls" AS c WHERE c."timestamp" >= $1 ORDER BY c."timestamp" ASC LIMIT 1000`
-	} else {
-		query = `SELECT c."callId", c."timestamp" FROM "calls" AS c WHERE c."timestamp" >= ? ORDER BY c."timestamp" ASC LIMIT 1000`
-	}
+	query := `SELECT c."callId", c."timestamp" FROM "calls" AS c WHERE c."timestamp" >= $1 ORDER BY c."timestamp" ASC LIMIT 1000`
 
 	if rows, err = controller.Database.Sql.Query(query, cutoffTime.UnixMilli()); err != nil {
 		controller.Logs.LogEvent(LogLevelError, fmt.Sprintf("sendAvailableCallsToClient query failed: %v", err))

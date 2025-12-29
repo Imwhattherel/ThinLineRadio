@@ -56,13 +56,20 @@ type Options struct {
 	EmailServiceDomain          string `json:"emailServiceDomain"`
 	EmailServiceTemplateId      string `json:"emailServiceTemplateId"`
 	// Email provider selection
-	EmailProvider               string `json:"emailProvider"` // "sendgrid" or "mailgun"
+	EmailProvider               string `json:"emailProvider"` // "sendgrid", "mailgun", or "smtp"
 	// SendGrid settings
 	EmailSendGridAPIKey         string `json:"emailSendGridApiKey"`
 	// Mailgun settings
 	EmailMailgunAPIKey          string `json:"emailMailgunApiKey"`
 	EmailMailgunDomain          string `json:"emailMailgunDomain"`
 	EmailMailgunAPIBase         string `json:"emailMailgunApiBase"` // "https://api.mailgun.net" (US) or "https://api.eu.mailgun.net" (EU)
+	// SMTP settings
+	EmailSmtpHost               string `json:"emailSmtpHost"`     // SMTP server hostname
+	EmailSmtpPort               int    `json:"emailSmtpPort"`     // SMTP server port (25, 465, 587, etc.)
+	EmailSmtpUsername           string `json:"emailSmtpUsername"` // SMTP authentication username
+	EmailSmtpPassword           string `json:"emailSmtpPassword"` // SMTP authentication password
+	EmailSmtpUseTLS             bool   `json:"emailSmtpUseTLS"`   // Use TLS/SSL connection
+	EmailSmtpSkipVerify         bool   `json:"emailSmtpSkipVerify"` // Skip certificate verification (for self-signed certs)
 	// Email settings (common to all providers)
 	EmailSmtpFromEmail          string `json:"emailSmtpFromEmail"`
 	EmailSmtpFromName            string `json:"emailSmtpFromName"`
@@ -353,6 +360,50 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.EmailMailgunAPIBase = v
 	default:
 		options.EmailMailgunAPIBase = defaults.options.emailMailgunAPIBase
+	}
+
+	switch v := m["emailSmtpHost"].(type) {
+	case string:
+		options.EmailSmtpHost = v
+	default:
+		options.EmailSmtpHost = defaults.options.emailSmtpHost
+	}
+
+	switch v := m["emailSmtpPort"].(type) {
+	case float64:
+		options.EmailSmtpPort = int(v)
+	case int:
+		options.EmailSmtpPort = v
+	default:
+		options.EmailSmtpPort = defaults.options.emailSmtpPort
+	}
+
+	switch v := m["emailSmtpUsername"].(type) {
+	case string:
+		options.EmailSmtpUsername = v
+	default:
+		options.EmailSmtpUsername = defaults.options.emailSmtpUsername
+	}
+
+	switch v := m["emailSmtpPassword"].(type) {
+	case string:
+		options.EmailSmtpPassword = v
+	default:
+		options.EmailSmtpPassword = defaults.options.emailSmtpPassword
+	}
+
+	switch v := m["emailSmtpUseTLS"].(type) {
+	case bool:
+		options.EmailSmtpUseTLS = v
+	default:
+		options.EmailSmtpUseTLS = defaults.options.emailSmtpUseTLS
+	}
+
+	switch v := m["emailSmtpSkipVerify"].(type) {
+	case bool:
+		options.EmailSmtpSkipVerify = v
+	default:
+		options.EmailSmtpSkipVerify = defaults.options.emailSmtpSkipVerify
 	}
 
 	switch v := m["emailSmtpFromEmail"].(type) {
@@ -868,6 +919,50 @@ func (options *Options) Read(db *Database) error {
 					options.EmailProvider = v
 				}
 			}
+		case "emailSmtpHost":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.EmailSmtpHost = v
+				}
+			}
+		case "emailSmtpPort":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case float64:
+					options.EmailSmtpPort = int(v)
+				case int:
+					options.EmailSmtpPort = v
+				}
+			}
+		case "emailSmtpUsername":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.EmailSmtpUsername = v
+				}
+			}
+		case "emailSmtpPassword":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.EmailSmtpPassword = v
+				}
+			}
+		case "emailSmtpUseTLS":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case bool:
+					options.EmailSmtpUseTLS = v
+				}
+			}
+		case "emailSmtpSkipVerify":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case bool:
+					options.EmailSmtpSkipVerify = v
+				}
+			}
 		case "emailLogoFilename":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
@@ -1071,6 +1166,12 @@ func (options *Options) Write(db *Database) error {
 	set("emailMailgunApiKey", options.EmailMailgunAPIKey)
 	set("emailMailgunDomain", options.EmailMailgunDomain)
 	set("emailMailgunApiBase", options.EmailMailgunAPIBase)
+	set("emailSmtpHost", options.EmailSmtpHost)
+	set("emailSmtpPort", options.EmailSmtpPort)
+	set("emailSmtpUsername", options.EmailSmtpUsername)
+	set("emailSmtpPassword", options.EmailSmtpPassword)
+	set("emailSmtpUseTLS", options.EmailSmtpUseTLS)
+	set("emailSmtpSkipVerify", options.EmailSmtpSkipVerify)
 	set("emailLogoFilename", options.EmailLogoFilename)
 	set("emailLogoBorderRadius", options.EmailLogoBorderRadius)
 	set("stripePublishableKey", options.StripePublishableKey)

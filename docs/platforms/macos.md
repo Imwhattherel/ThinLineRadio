@@ -220,7 +220,7 @@ All of your parameters passed as arguments to ThinLine Radio have been saved to 
         ssl_auto_cert = mydomain.com
         ssl_listen = :443
 
-> **Note:** SQLite is no longer supported in version 7. You must use PostgreSQL or MySQL/MariaDB. See the [update guide](../update-from-v6.md) for migration instructions.
+> **Note:** SQLite is no longer supported in version 7. You must use PostgreSQL. See the [update guide](../update-from-v6.md) for migration instructions.
 
 Then simply run ThinLine Radio without any arguments.
 
@@ -271,9 +271,9 @@ To get the whole list of arguments you can pass to ThinLine Radio, simply pass t
           -db_pass string
                 database password
           -db_port uint
-                database host port (default 3306)
+                database host port (default 5432)
           -db_type string
-                database type, one of mariadb, mysql, postgresql (default "postgresql")
+                database type (postgresql only, default "postgresql")
           -db_user string
                 database user name
           -listen string

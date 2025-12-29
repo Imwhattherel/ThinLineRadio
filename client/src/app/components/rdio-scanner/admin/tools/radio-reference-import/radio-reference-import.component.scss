@@ -74,6 +74,43 @@ section {
   }
 }
 
+// Styling for dropdown option lists with visual separators
+::ng-deep .separated-options {
+  .mat-mdc-option {
+    border-bottom: 1px solid #e0e0e0;
+    padding: 12px 16px !important;
+    min-height: 48px;
+    
+    &:hover {
+      background-color: #f5f5f5 !important;
+    }
+    
+    &.mat-mdc-option-active {
+      background-color: #e3f2fd !important;
+    }
+    
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+  
+  // Add colored left border to each option for better visual separation
+  .mat-mdc-option {
+    border-left: 3px solid transparent;
+    transition: border-color 0.2s ease;
+    
+    &:hover {
+      border-left-color: #2196F3;
+    }
+    
+    &.mat-mdc-option-active,
+    &.mdc-list-item--selected {
+      border-left-color: #1976d2;
+      background-color: #e3f2fd !important;
+    }
+  }
+}
+
 .button-row {
     display: flex;
     gap: 1rem;

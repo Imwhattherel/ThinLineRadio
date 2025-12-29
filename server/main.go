@@ -96,6 +96,21 @@ func main() {
 
 	config := NewConfig()
 
+	// Check if we should run interactive setup wizard
+	if shouldRunInteractiveSetup(config) {
+		if config.DbName == "" || config.DbUsername == "" {
+			fmt.Println("\n⚠️  Database configuration is incomplete or missing.")
+		} else {
+			fmt.Println("\n⚠️  No configuration file found.")
+		}
+		fmt.Println("Running interactive setup wizard...\n")
+		if err := runInteractiveSetup(config.ConfigFile); err != nil {
+			log.Fatalf("Setup failed: %v\n", err)
+		}
+		fmt.Println("\n✓ Setup complete! Please restart the server.\n")
+		os.Exit(0)
+	}
+
 	if config.newAdminPassword == "" {
 		fmt.Printf("\nThinLine Radio v%s\n", Version)
 		fmt.Printf("----------------------------------\n")
@@ -645,12 +660,12 @@ func main() {
 					baseUrl := fmt.Sprintf("%s://%s/", scheme, host)
 					html = strings.Replace(html, `<base href="./">`, fmt.Sprintf(`<base href="%s">`, baseUrl), 1)
 
-					// Get initial config data
-					branding := controller.Options.Branding
-					if branding == "" {
-						branding = "Rdio Scanner"
-					}
-					email := controller.Options.Email
+				// Get initial config data
+				branding := controller.Options.Branding
+				if branding == "" {
+					branding = "Thinline Radio"
+				}
+				email := controller.Options.Email
 
 					// Inject config into HTML
 					configScript := fmt.Sprintf(`

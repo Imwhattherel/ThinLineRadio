@@ -455,7 +455,7 @@ func ParseMultipartContent(call *Call, p *multipart.Part, b []byte) {
 		call.Meta.SystemLabel = string(b)
 
 	case "talkgroup", "talkgroupId":
-		if i, err := strconv.Atoi(string(b)); err == nil && i > 0 {
+		if i, err := strconv.Atoi(string(b)); err == nil {
 			call.TalkgroupId = uint(i)
 			call.Meta.TalkgroupRef = uint(i)
 		}

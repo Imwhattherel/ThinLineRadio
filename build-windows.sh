@@ -71,38 +71,11 @@ fi
 echo -e "${GREEN}  ✓ Client built successfully${NC}"
 cd ..
 
-# Create server icon
-echo ""
-echo -e "${YELLOW}Creating server icon...${NC}"
-if [ -f "create-server-icon.sh" ]; then
-    chmod +x create-server-icon.sh
-    ./create-server-icon.sh || echo "  ⚠ Icon creation failed, building without icon"
-else
-    echo "  ⚠ Icon creation script not found, building without icon"
-fi
-
 # Build the Go server (cross-compile for Windows)
 echo ""
 echo -e "${YELLOW}Cross-compiling Go server for Windows amd64...${NC}"
 
 cd server
-
-# Check if goversioninfo is installed
-if command -v goversioninfo &> /dev/null && [ -f "versioninfo.json" ] && [ -f "icon.ico" ]; then
-    echo "  Embedding icon and version info..."
-    goversioninfo -icon=icon.ico -manifest=versioninfo.json
-    if [ $? -eq 0 ]; then
-        echo "  ✓ Icon and version info embedded"
-    else
-        echo "  ⚠ Failed to embed icon, building without it"
-        rm -f resource.syso
-    fi
-else
-    if ! command -v goversioninfo &> /dev/null; then
-        echo "  ⚠ goversioninfo not installed, building without icon"
-        echo "    Install with: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest"
-    fi
-fi
 
 # Set build variables for Windows cross-compilation
 export GOOS=windows
@@ -113,9 +86,6 @@ export CGO_ENABLED=0  # Disable CGO for static binary (required for cross-compil
 BINARY_NAME="thinline-radio-windows-amd64-v${VERSION}.exe"
 echo "  Building binary: $BINARY_NAME"
 go build -ldflags="-s -w" -o "../$BINARY_NAME" .
-
-# Clean up resource file after build
-rm -f resource.syso
 
 if [ ! -f "../$BINARY_NAME" ]; then
     echo -e "${RED}ERROR: Server build failed${NC}"
@@ -192,14 +162,60 @@ This distribution is built for Windows amd64 (64-bit) and should work on Windows
 
 1. **Extract the files** to a directory (e.g., \`C:\\Program Files\\ThinLine Radio\`)
 
-2. **Configure the server:**
+2. **Set up PostgreSQL:**
+   
+   You have two options for PostgreSQL setup:
+   
+   ### Option A: Interactive Setup Wizard (Recommended)
+   
+   Simply run the server and it will guide you through setup:
+   \`\`\`cmd
+   thinline-radio.exe
+   \`\`\`
+   
+   The wizard will:
+   - Detect if PostgreSQL is installed locally
+   - Offer to guide you through local PostgreSQL installation
+   - Or help you connect to a remote PostgreSQL server
+   - Automatically create the database and user (local)
+   - Generate the configuration file
+   
+   **For Local PostgreSQL:**
+   - The wizard will prompt for your PostgreSQL superuser password
+   - It will create the database and user automatically
+   - Configuration file will be created for you
+   
+   **For Remote PostgreSQL:**
+   - The wizard will prompt for your remote server details
+   - You'll need existing database credentials
+   - Make sure the remote PostgreSQL server allows connections
+   
+   ### Option B: Manual Setup
+   
+   Install PostgreSQL and configure manually:
+   
+   - **Download and Install PostgreSQL:**
+     - Download from: https://www.postgresql.org/download/windows/
+     - Run installer and set a password for postgres user
+   
+   - **Create Database and User:**
+     - Open Command Prompt as Administrator:
+     \`\`\`cmd
+     cd "C:\\Program Files\\PostgreSQL\\16\\bin"
+     psql -U postgres
+     \`\`\`
+     
+     In PostgreSQL prompt:
+     \`\`\`sql
+     CREATE DATABASE thinline_radio;
+     CREATE USER thinline_user WITH PASSWORD 'your_secure_password';
+     GRANT ALL PRIVILEGES ON DATABASE thinline_radio TO thinline_user;
+     \\q
+     \`\`\`
+
+3. **Configure the server (if using manual setup):**
    - Copy \`thinline-radio.ini.template\` to \`thinline-radio.ini\`
    - Edit \`thinline-radio.ini\` with your database and server settings
-
-3. **Set up the database:**
-   - Ensure PostgreSQL or MySQL is installed and running
-   - Create a database for ThinLine Radio
-   - Update the database credentials in \`thinline-radio.ini\`
 
 4. **Run the server:**
    \`\`\`cmd
@@ -240,7 +256,7 @@ To run ThinLine Radio as a Windows Service, you can use a service wrapper like N
 ## Requirements
 
 - Windows 10/11 or Windows Server 2016+
-- PostgreSQL 12+ (or MySQL 8+)
+- PostgreSQL 12+
 - FFmpeg (for audio processing) - download from https://ffmpeg.org/download.html
 - Sufficient disk space for audio files
 

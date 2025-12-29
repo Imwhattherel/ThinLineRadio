@@ -124,21 +124,7 @@ build_platform_arch() {
     BINARY_NAME="thinline-radio-${PLATFORM}-${ARCH}-v${VERSION}${BINARY_EXT}"
     echo "  Building binary: $BINARY_NAME"
     
-    # Special handling for Windows (icon embedding)
-    if [ "$PLATFORM" = "windows" ]; then
-        # Check if goversioninfo is installed
-        if command -v goversioninfo &> /dev/null && [ -f "versioninfo.json" ] && [ -f "icon.ico" ]; then
-            echo "  Embedding icon and version info..."
-            goversioninfo -icon=icon.ico -manifest=versioninfo.json || true
-        fi
-    fi
-    
     go build -ldflags="-s -w" -o "../$BINARY_NAME" .
-    
-    # Clean up Windows resource file after build
-    if [ "$PLATFORM" = "windows" ]; then
-        rm -f resource.syso
-    fi
     
     if [ ! -f "../$BINARY_NAME" ]; then
         echo -e "${RED}ERROR: Server build failed for ${PLATFORM} ${ARCH}${NC}"
@@ -225,7 +211,7 @@ This distribution is built for Windows ${ARCH_NAME} (${ARCH}) and should work on
    - Edit \`thinline-radio.ini\` with your database and server settings
 
 3. **Set up the database:**
-   - Ensure PostgreSQL or MySQL is installed and running
+   - Ensure PostgreSQL is installed and running
    - Create a database for ThinLine Radio
    - Update the database credentials in \`thinline-radio.ini\`
 
@@ -242,7 +228,7 @@ This distribution is built for Windows ${ARCH_NAME} (${ARCH}) and should work on
 ## Requirements
 
 - Windows 10/11 or Windows Server 2016+
-- PostgreSQL 12+ (or MySQL 8+)
+- PostgreSQL 12+
 - FFmpeg (for audio processing) - download from https://ffmpeg.org/download.html
 - Sufficient disk space for audio files
 
@@ -276,7 +262,7 @@ This distribution is built for ${PLATFORM_DISPLAY} ${ARCH_NAME} (${ARCH}).
    \`\`\`
 
 3. **Set up the database:**
-   - Ensure PostgreSQL or MySQL is installed and running
+   - Ensure PostgreSQL is installed and running
    - Create a database for ThinLine Radio
    - Update the database credentials in \`thinline-radio.ini\`
 
@@ -292,7 +278,7 @@ This distribution is built for ${PLATFORM_DISPLAY} ${ARCH_NAME} (${ARCH}).
 
 ## Requirements
 
-- ${PLATFORM_DISPLAY} with PostgreSQL 12+ (or MySQL 8+)
+- ${PLATFORM_DISPLAY} with PostgreSQL 12+
 - FFmpeg (for audio processing)
 - Sufficient disk space for audio files
 
@@ -404,40 +390,11 @@ build_darwin() {
     echo -e "${YELLOW}════════════════════════════════════════${NC}"
     echo ""
     
-    # Create macOS icon if source exists
-    if [ -f "ThinlineRadio-Mobile/assets/icons/icon.png" ] && command -v sips &> /dev/null; then
-        echo -e "${YELLOW}Creating macOS icon...${NC}"
-        ICONSET_DIR="server/ThinLineRadio.iconset"
-        mkdir -p "$ICONSET_DIR"
-        
-        sips -z 16 16     ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_16x16.png" > /dev/null 2>&1 || true
-        sips -z 32 32     ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_16x16@2x.png" > /dev/null 2>&1 || true
-        sips -z 32 32     ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_32x32.png" > /dev/null 2>&1 || true
-        sips -z 64 64     ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_32x32@2x.png" > /dev/null 2>&1 || true
-        sips -z 128 128   ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_128x128.png" > /dev/null 2>&1 || true
-        sips -z 256 256   ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_128x128@2x.png" > /dev/null 2>&1 || true
-        sips -z 256 256   ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_256x256.png" > /dev/null 2>&1 || true
-        sips -z 512 512   ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_256x256@2x.png" > /dev/null 2>&1 || true
-        sips -z 512 512   ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_512x512.png" > /dev/null 2>&1 || true
-        sips -z 1024 1024 ThinlineRadio-Mobile/assets/icons/icon.png --out "$ICONSET_DIR/icon_512x512@2x.png" > /dev/null 2>&1 || true
-        
-        if command -v iconutil &> /dev/null; then
-            iconutil -c icns "$ICONSET_DIR" -o "server/icon.icns" 2>/dev/null || true
-        fi
-        
-        rm -rf "$ICONSET_DIR"
-    fi
-    
     local ARCHITECTURES=("amd64" "arm64")
     local ARCH_NAMES=("Intel" "Apple Silicon")
     
     for i in "${!ARCHITECTURES[@]}"; do
         build_platform_arch "darwin" "${ARCHITECTURES[$i]}" "${ARCH_NAMES[$i]}"
-        
-        # Copy icon to dist if it exists
-        if [ -f "server/icon.icns" ] && [ -d "dist-darwin-${ARCHITECTURES[$i]}" ]; then
-            cp "server/icon.icns" "dist-darwin-${ARCHITECTURES[$i]}/"
-        fi
     done
     
     # Create universal binary if on macOS and lipo is available
@@ -455,9 +412,6 @@ build_darwin() {
         chmod +x "$DIST_DIR_UNIVERSAL/thinline-radio"
         
         cp dist-darwin-amd64/thinline-radio.ini.template "$DIST_DIR_UNIVERSAL/"
-        if [ -f "dist-darwin-amd64/icon.icns" ]; then
-            cp dist-darwin-amd64/icon.icns "$DIST_DIR_UNIVERSAL/"
-        fi
         
         ARCHIVE_NAME_UNIVERSAL="thinline-radio-darwin-universal-v${VERSION}.tar.gz"
         tar -czf "$ARCHIVE_NAME_UNIVERSAL" -C "$DIST_DIR_UNIVERSAL" .
@@ -472,13 +426,6 @@ build_windows() {
     echo -e "${YELLOW}Building Windows Packages${NC}"
     echo -e "${YELLOW}════════════════════════════════════════${NC}"
     echo ""
-    
-    # Create server icon if script exists
-    if [ -f "create-server-icon.sh" ]; then
-        echo -e "${YELLOW}Creating server icon...${NC}"
-        chmod +x create-server-icon.sh
-        ./create-server-icon.sh || echo "  ⚠ Icon creation failed, building without icon"
-    fi
     
     local ARCHITECTURES=("amd64" "arm64")
     local ARCH_NAMES=("64-bit" "ARM64")

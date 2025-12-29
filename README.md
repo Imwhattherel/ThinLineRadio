@@ -96,8 +96,14 @@ Here is a list of recorders known to work:
    | Windows          | arm64        | thinline-radio-windows-arm64-v7.0.0.zip     |
 
 2. Extract the contents of the archive somewhere on your computer.
-3. Run the ThinLine Radio executable.
-4. Access the administrative dashboard to finalize the configuration.
+
+3. Set up PostgreSQL:
+   - **Option A (Recommended)**: Run the executable and use the **Interactive Setup Wizard** to guide you through PostgreSQL installation, database creation, and configuration
+   - **Option B**: Manually install PostgreSQL (locally or on another machine) and configure the server using the included documentation
+
+4. Run the ThinLine Radio executable.
+
+5. Access the administrative dashboard to finalize the configuration.
 
 More detailed instructions are available in the documentation.
 

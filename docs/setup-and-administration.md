@@ -23,7 +23,7 @@ This guide covers how to run ThinLine Radio and configure essential features.
 
 Before running ThinLine Radio, ensure you have:
 
-- **PostgreSQL 12+** or **MySQL 8+** installed and running
+- **PostgreSQL 12+** installed and running
 - **FFmpeg** installed (required for audio processing)
 - Sufficient disk space for audio files
 - Network access for API calls (if using transcription services)
@@ -32,20 +32,41 @@ Before running ThinLine Radio, ensure you have:
 
 1. **Extract the distribution package** to your desired location
 
-2. **Configure the server:**
-   ```bash
-   # Linux/macOS
-   cp thinline-radio.ini.template thinline-radio.ini
-   nano thinline-radio.ini
+2. **Set up PostgreSQL:**
    
-   # Windows
-   copy thinline-radio.ini.template thinline-radio.ini
-   notepad thinline-radio.ini
-   ```
+   You have two options for PostgreSQL setup:
+   
+   **Option A: Use Interactive Setup Wizard (Recommended)**
+   - Simply run the server without a config file:
+     ```bash
+     # Linux/macOS
+     ./thinline-radio
+     
+     # Windows
+     thinline-radio.exe
+     ```
+   - The interactive wizard will guide you through:
+     - PostgreSQL installation detection
+     - Database and user creation (local installation)
+     - Remote PostgreSQL server configuration (if PostgreSQL is on another machine)
+     - Configuration file generation
+   - Follow the on-screen prompts to complete setup
+   
+   **Option B: Manual Configuration**
+   - Install PostgreSQL (see [Database Configuration](#database-configuration) below)
+   - Create database and user manually
+   - Create and edit configuration file:
+     ```bash
+     # Linux/macOS
+     cp thinline-radio.ini.template thinline-radio.ini
+     nano thinline-radio.ini
+     
+     # Windows
+     copy thinline-radio.ini.template thinline-radio.ini
+     notepad thinline-radio.ini
+     ```
 
-3. **Set up the database** (see [Database Configuration](#database-configuration) below)
-
-4. **Run the server:**
+3. **Run the server:**
    ```bash
    # Linux/macOS
    ./thinline-radio -config thinline-radio.ini
@@ -54,7 +75,7 @@ Before running ThinLine Radio, ensure you have:
    thinline-radio.exe -config thinline-radio.ini
    ```
 
-5. **Access the admin dashboard:**
+4. **Access the admin dashboard:**
    - Navigate to `http://localhost:3000/admin`
    - Default password: `admin`
    - **Important**: Change the default password immediately after first login
@@ -68,6 +89,15 @@ For platform-specific deployment instructions (system services, installation pat
 ---
 
 ## Database Configuration
+
+ThinLine Radio includes an **Interactive Setup Wizard** that can automatically configure PostgreSQL for you. The wizard supports:
+- **Local PostgreSQL**: Automatically creates database and user if PostgreSQL is installed locally
+- **Remote PostgreSQL**: Connects to an existing PostgreSQL server on another machine
+- **Guided Installation**: Provides platform-specific installation instructions if PostgreSQL is not detected
+
+**To use the Interactive Setup Wizard**, simply run ThinLine Radio without a configuration file and follow the on-screen prompts.
+
+If you prefer manual configuration, follow the instructions below.
 
 ### PostgreSQL Setup
 
@@ -139,79 +169,14 @@ GRANT ALL PRIVILEGES ON DATABASE thinline_radio TO thinline_user;
 \q
 ```
 
-### MySQL/MariaDB Setup
-
-#### Linux/macOS Installation
-
-**Ubuntu/Debian:**
-```bash
-sudo apt update
-sudo apt install mysql-server
-```
-
-**Fedora/CentOS/RHEL:**
-```bash
-sudo dnf install mysql-server
-sudo systemctl enable mysqld
-sudo systemctl start mysqld
-```
-
-**macOS (Homebrew):**
-```bash
-brew install mysql
-brew services start mysql
-```
-
-#### Windows Installation
-
-1. **Download MySQL:**
-   - Visit: https://dev.mysql.com/downloads/installer/
-   - Download MySQL Installer for Windows
-   - Run the installer
-
-2. **During installation:**
-   - Choose "Developer Default" or "Server only"
-   - Complete the configuration wizard
-   - Set root password
-   - Configure Windows service (start automatically)
-
-3. **Verify installation:**
-   - Open Command Prompt
-   - Test connection:
-     ```cmd
-     mysql -u root -p
-     ```
-   - Enter the root password
-
-#### Create Database and User
-
-**Linux/macOS:**
-```bash
-sudo mysql
-```
-
-**Windows (Command Prompt):**
-```cmd
-mysql -u root -p
-```
-
-In the MySQL prompt (all platforms):
-```sql
-CREATE DATABASE thinline_radio;
-CREATE USER 'thinline_user'@'localhost' IDENTIFIED BY 'your_secure_password';
-GRANT ALL PRIVILEGES ON thinline_radio.* TO 'thinline_user'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-```
-
 ### Configuration File
 
 Update `thinline-radio.ini` with your database settings:
 
 ```ini
-db_type = postgresql  # or mysql
+db_type = postgresql
 db_host = localhost
-db_port = 5432       # 3306 for MySQL
+db_port = 5432
 db_name = thinline_radio
 db_user = thinline_user
 db_pass = your_secure_password
@@ -228,13 +193,13 @@ The `thinline-radio.ini` configuration file supports the following options:
 ### Database Settings
 
 ```ini
-# Database type: postgresql, mysql, or mariadb
+# Database type (postgresql only)
 db_type = postgresql
 
 # Database host (IP address or hostname)
 db_host = localhost
 
-# Database port (5432 for PostgreSQL, 3306 for MySQL/MariaDB)
+# Database port (default: 5432 for PostgreSQL)
 db_port = 5432
 
 # Database name
@@ -407,9 +372,9 @@ ThinLine Radio supports the following command-line arguments:
 -config_save                # Save current configuration to thinline-radio.ini
 
 # Database
--db_type <type>             # Database type: postgresql, mysql, mariadb
+-db_type <type>             # Database type (postgresql only)
 -db_host <host>             # Database host (default: localhost)
--db_port <port>             # Database port (default: 5432 for PostgreSQL, 3306 for MySQL)
+-db_port <port>             # Database port (default: 5432 for PostgreSQL)
 -db_name <name>             # Database name
 -db_user <user>             # Database username
 -db_pass <password>         # Database password
@@ -1088,14 +1053,8 @@ System admins have elevated permissions to:
 
 #### Making a User a System Admin
 
-Using PostgreSQL:
 ```sql
 UPDATE "users" SET "systemAdmin" = true WHERE "email" = 'admin@example.com';
-```
-
-Using MySQL:
-```sql
-UPDATE users SET systemAdmin = true WHERE email = 'admin@example.com';
 ```
 
 ### System Alerts
@@ -1179,14 +1138,86 @@ Configure user registration and access control:
 
 ### Email Services
 
-Configure email delivery for notifications and password resets:
+Configure email delivery for user verification, password resets, and notifications.
 
-**Email Providers:**
-- **SendGrid**: Configure with API key
-- **Mailgun**: Configure with API key, domain, and region (US/EU)
-- **SMTP**: Configure with host, port, username, password, and TLS settings
+#### Email Providers
 
-**Email Settings:**
+ThinLine Radio supports three email providers:
+
+##### SendGrid
+
+A cloud-based email delivery service with high deliverability.
+
+**Configuration:**
+- **API Key**: Get from [SendGrid Dashboard](https://app.sendgrid.com/settings/api_keys)
+- **From Email**: Sender email address (e.g., `noreply@yourdomain.com`)
+- **From Name**: Display name for sent emails (e.g., `ThinLine Radio`)
+
+##### Mailgun
+
+A transactional email service with flexible routing.
+
+**Configuration:**
+- **API Key**: Get from [Mailgun Dashboard](https://app.mailgun.com/app/account/security/api_keys)
+- **Domain**: Your verified sending domain in Mailgun (e.g., `mg.yourdomain.com`)
+- **API Base URL**: 
+  - US Region: `https://api.mailgun.net`
+  - EU Region: `https://api.eu.mailgun.net`
+- **From Email**: Sender email address
+- **From Name**: Display name for sent emails
+
+##### SMTP (Direct Mail Server)
+
+Connect directly to any SMTP server (Gmail, Outlook, Office 365, or custom mail servers).
+
+**Configuration:**
+- **SMTP Host**: Server hostname or IP address (e.g., `smtp.gmail.com`, `smtp.office365.com`)
+- **SMTP Port**: Common ports:
+  - `25` - Unencrypted (not recommended)
+  - `465` - Implicit SSL/TLS (recommended for secure connections)
+  - `587` - STARTTLS (recommended for most servers)
+- **SMTP Username**: Authentication username (often your email address)
+- **SMTP Password**: Authentication password or app-specific password
+- **Use TLS/SSL**: Enable for encrypted connections (recommended)
+- **Skip Certificate Verification**: Enable only for self-signed certificates (not recommended for production)
+- **From Email**: Sender email address
+- **From Name**: Display name for sent emails
+
+**Popular SMTP Server Examples:**
+
+*Gmail:*
+- Host: `smtp.gmail.com`
+- Port: `587` (STARTTLS) or `465` (SSL/TLS)
+- Username: Your full Gmail address
+- Password: App-specific password (enable 2FA and generate at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords))
+- Use TLS: Enabled
+
+*Office 365:*
+- Host: `smtp.office365.com`
+- Port: `587` (STARTTLS)
+- Username: Your full email address
+- Password: Your account password
+- Use TLS: Enabled
+
+*Outlook.com:*
+- Host: `smtp-mail.outlook.com`
+- Port: `587` (STARTTLS)
+- Username: Your full Outlook.com address
+- Password: Your account password
+- Use TLS: Enabled
+
+#### Email Logo (Optional)
+
+Upload a custom logo to include in verification emails:
+- Supported formats: PNG, JPG, SVG
+- Recommended size: 200-400px wide
+- **Border Radius**: CSS value for logo rounding (e.g., `0px` for square, `8px` for rounded, `50%` for circle)
+
+#### Testing Email Configuration
+
+Use the "Send Test Email" button in the admin panel to verify your email settings are working correctly before users attempt registration.
+
+**Common Email Settings:**
 - **From Email**: Sender email address
 - **From Name**: Sender display name
 - **Logo Filename**: Custom logo for email templates
@@ -1274,15 +1305,6 @@ sudo -u postgres psql -h localhost -U thinline_user -d thinline_radio
 # Windows
 cd "C:\Program Files\PostgreSQL\<version>\bin"
 psql -U thinline_user -d thinline_radio
-```
-
-**MySQL:**
-```bash
-# Linux/macOS
-mysql -u thinline_user -p thinline_radio
-
-# Windows
-mysql -u thinline_user -p thinline_radio
 ```
 
 ### Transcription Not Working

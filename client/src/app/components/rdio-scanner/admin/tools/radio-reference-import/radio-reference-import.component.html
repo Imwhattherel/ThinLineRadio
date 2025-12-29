@@ -72,28 +72,28 @@
     <div class="dropdowns" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
         <mat-form-field appearance="outline" floatLabel="auto">
             <mat-label>Country</mat-label>
-            <mat-select [(ngModel)]="selectedCountry" (selectionChange)="onCountryChange()">
+            <mat-select [(ngModel)]="selectedCountry" (selectionChange)="onCountryChange()" panelClass="separated-options">
                 <mat-option *ngFor="let c of countries" [value]="c">{{ c.name }}</mat-option>
             </mat-select>
         </mat-form-field>
 
         <mat-form-field appearance="outline" floatLabel="auto">
             <mat-label>State/Province</mat-label>
-            <mat-select [(ngModel)]="selectedStateId" (selectionChange)="onStateChange()" [disabled]="!selectedCountry">
+            <mat-select [(ngModel)]="selectedStateId" (selectionChange)="onStateChange()" [disabled]="!selectedCountry" panelClass="separated-options">
                 <mat-option *ngFor="let s of states" [value]="s.id">{{ s.name }}</mat-option>
             </mat-select>
         </mat-form-field>
 
         <mat-form-field appearance="outline" floatLabel="auto">
             <mat-label>County</mat-label>
-            <mat-select [(ngModel)]="selectedCountyId" (selectionChange)="onCountyChange()" [disabled]="!selectedStateId">
+            <mat-select [(ngModel)]="selectedCountyId" (selectionChange)="onCountyChange()" [disabled]="!selectedStateId" panelClass="separated-options">
                 <mat-option *ngFor="let c of counties" [value]="c.id">{{ c.name }}</mat-option>
             </mat-select>
         </mat-form-field>
 
         <mat-form-field appearance="outline" floatLabel="auto">
             <mat-label>System</mat-label>
-            <mat-select (selectionChange)="onSystemSelectFromDropdown($event.value)" [disabled]="!selectedCountyId">
+            <mat-select (selectionChange)="onSystemSelectFromDropdown($event.value)" [disabled]="!selectedCountyId" panelClass="separated-options">
                 <mat-option *ngFor="let s of systems" [value]="s.id">{{ s.name }}</mat-option>
             </mat-select>
         </mat-form-field>
@@ -107,25 +107,45 @@
 
     <!-- Category selection when available -->
     <div *ngIf="importType === 'talkgroups' && selectedSystem && talkgroupCategories.length > 0" class="category-selection" style="margin-top: 12px;">
-        <mat-form-field floatLabel="auto" appearance="outline">
-            <mat-label>Talkgroup Category</mat-label>
-            <mat-select [(ngModel)]="selectedCategory" (selectionChange)="selectCategory($event.value)" placeholder="Select Category">
-                <mat-option [value]="undefined">Select Category</mat-option>
-                <mat-option value="ALL">All Categories</mat-option>
-                <mat-option *ngFor="let cat of talkgroupCategories" [value]="cat">
-                    {{ cat.name }} {{ cat.description ? '(' + cat.description + ')' : '' }}
-                </mat-option>
-            </mat-select>
-        </mat-form-field>
-        
-        <div *ngIf="selectedCategory === undefined" class="mat-caption" style="margin-top: 8px; color: #666;">
-            <mat-icon style="font-size: 16px; vertical-align: middle; margin-right: 4px;">info</mat-icon>
-            Select a talkgroup category or choose "All Categories" to continue.
+        <div style="margin-bottom: 12px;">
+            <h5 class="mat-h5" style="margin-bottom: 8px;">Talkgroup Categories</h5>
+            <p class="mat-caption" style="color: #666; margin-bottom: 12px;">
+                <mat-icon style="font-size: 16px; vertical-align: middle; margin-right: 4px;">info</mat-icon>
+                Select one or more categories to load talkgroups, or select "All Categories" to load everything.
+            </p>
         </div>
-        
-        <div *ngIf="selectedCategory === 'ALL'" class="mat-caption" style="margin-top: 8px; color: #666;">
-            <mat-icon style="font-size: 16px; vertical-align: middle; margin-right: 4px;">info</mat-icon>
-            All talkgroups from all categories will be loaded into the table
+
+        <!-- Select All Categories Option -->
+        <div style="margin-bottom: 12px; padding: 8px; border: 1px solid #e0e0e0; border-radius: 4px; background-color: #f5f5f5;">
+            <mat-checkbox 
+                [(ngModel)]="selectAllCategories" 
+                (change)="toggleSelectAllCategories()"
+                color="primary"
+                style="font-weight: 500;">
+                All Categories
+            </mat-checkbox>
+            <p class="mat-caption" style="margin: 4px 0 0 32px; color: #666;" *ngIf="selectAllCategories">
+                All talkgroups from all categories will be loaded into the table.
+            </p>
+        </div>
+
+        <!-- Individual Category Checkboxes -->
+        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; padding: 12px;">
+            <div *ngFor="let cat of talkgroupCategories" style="margin-bottom: 8px;">
+                <mat-checkbox 
+                    [checked]="isCategorySelected(cat)" 
+                    (change)="toggleCategorySelection(cat)"
+                    [disabled]="selectAllCategories"
+                    color="primary">
+                    {{ cat.name }}{{ cat.description ? ' (' + cat.description + ')' : '' }}
+                </mat-checkbox>
+            </div>
+        </div>
+
+        <!-- Selected Categories Summary -->
+        <div *ngIf="selectedCategories.length > 0 && !selectAllCategories" class="mat-caption" style="margin-top: 8px; color: #666;">
+            <mat-icon style="font-size: 16px; vertical-align: middle; margin-right: 4px;">check_circle</mat-icon>
+            {{ selectedCategories.length }} categor{{ selectedCategories.length === 1 ? 'y' : 'ies' }} selected
         </div>
     </div>
 </section>
@@ -150,9 +170,10 @@
     <div *ngIf="importType === 'talkgroups'" class="talkgroup-management" style="margin-top: 24px;">
         <p class="mat-body">
             Browse talkgroups for this system 
-            <span *ngIf="selectedCategory && selectedCategory !== 'ALL'">from category: <strong>{{ selectedCategory.name }}</strong></span>
-            <span *ngIf="selectedCategory === 'ALL'">from <strong>all categories</strong></span>
-            <span *ngIf="selectedCategory === undefined">— select a category to begin</span>
+            <span *ngIf="selectedCategories.length === 1">from category: <strong>{{ selectedCategories[0].name }}</strong></span>
+            <span *ngIf="selectedCategories.length > 1">from <strong>{{ selectedCategories.length }} categories</strong></span>
+            <span *ngIf="selectAllCategories">from <strong>all categories</strong></span>
+            <span *ngIf="selectedCategories.length === 0 && !selectAllCategories">— select categories to begin</span>
         </p>
         
         <div class="county-path" *ngIf="getCountyPath()">

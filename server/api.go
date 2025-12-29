@@ -195,11 +195,10 @@ func (api *Api) CallUploadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if this is a test connection (SDRTrunk sends key, system, test fields)
-
 		if len(call.Audio) == 0 && call.SystemId > 0 && call.TalkgroupId == 0 && call.Timestamp.IsZero() {
 			// This is likely a test connection from SDRTrunk
 			// SDRTrunk expects this to fail with "Incomplete call data: no talkgroup" to consider it successful
-			api.Controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("api: Test connection detected from SDRTrunk - system: %d", call.SystemId))
+			// Silently handle test connections without logging
 			api.exitWithError(w, http.StatusExpectationFailed, "Incomplete call data: no talkgroup")
 			return
 		}
@@ -207,6 +206,9 @@ func (api *Api) CallUploadHandler(w http.ResponseWriter, r *http.Request) {
 		if ok, err := call.IsValid(); ok {
 			api.HandleCall(key, call, w)
 		} else {
+			// Log full call data for debugging incomplete uploads
+			api.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("api: Incomplete call data: %s | SystemId=%d TalkgroupId=%d AudioLen=%d Timestamp=%v SiteRef=%d Frequency=%d", 
+				err.Error(), call.SystemId, call.TalkgroupId, len(call.Audio), call.Timestamp, call.SiteRef, call.Frequency))
 			api.exitWithError(w, http.StatusExpectationFailed, fmt.Sprintf("Incomplete call data: %s\n", err.Error()))
 		}
 
@@ -466,20 +468,11 @@ func (api *Api) UserRegisterHandler(w http.ResponseWriter, r *http.Request) {
 			UsedAt      sql.NullInt64
 		}
 
-		var err error
-		if api.Controller.Database.Config.DbType == DbTypePostgresql {
-			err = api.Controller.Database.Sql.QueryRow(
-				`SELECT "userInvitationId", "email", "userGroupId", "status", "expiresAt", "usedAt" 
-				 FROM "userInvitations" WHERE "code" = $1`,
-				request.InvitationCode,
-			).Scan(&invitation.Id, &invitation.Email, &invitation.UserGroupId, &invitation.Status, &invitation.ExpiresAt, &invitation.UsedAt)
-		} else {
-			err = api.Controller.Database.Sql.QueryRow(
-				`SELECT userInvitationId, email, userGroupId, status, expiresAt, usedAt 
-				 FROM userInvitations WHERE code = ?`,
-				request.InvitationCode,
-			).Scan(&invitation.Id, &invitation.Email, &invitation.UserGroupId, &invitation.Status, &invitation.ExpiresAt, &invitation.UsedAt)
-		}
+		err := api.Controller.Database.Sql.QueryRow(
+			`SELECT "userInvitationId", "email", "userGroupId", "status", "expiresAt", "usedAt" 
+			 FROM "userInvitations" WHERE "code" = $1`,
+			request.InvitationCode,
+		).Scan(&invitation.Id, &invitation.Email, &invitation.UserGroupId, &invitation.Status, &invitation.ExpiresAt, &invitation.UsedAt)
 
 		if err == sql.ErrNoRows {
 			api.exitWithError(w, http.StatusBadRequest, "Invalid invitation code")
@@ -719,22 +712,12 @@ func (api *Api) UserRegisterHandler(w http.ResponseWriter, r *http.Request) {
 	// Mark invitation as used if one was provided
 	if invitationId > 0 {
 		usedAt := time.Now().Unix()
-		if api.Controller.Database.Config.DbType == DbTypePostgresql {
-			_, err := api.Controller.Database.Sql.Exec(
-				`UPDATE "userInvitations" SET "usedAt" = $1, "status" = 'used' WHERE "userInvitationId" = $2`,
-				usedAt, invitationId,
-			)
-			if err != nil {
-				log.Printf("Warning: Failed to mark invitation as used: %v", err)
-			}
-		} else {
-			_, err := api.Controller.Database.Sql.Exec(
-				`UPDATE userInvitations SET usedAt = ?, status = 'used' WHERE userInvitationId = ?`,
-				usedAt, invitationId,
-			)
-			if err != nil {
-				log.Printf("Warning: Failed to mark invitation as used: %v", err)
-			}
+		_, err := api.Controller.Database.Sql.Exec(
+			`UPDATE "userInvitations" SET "usedAt" = $1, "status" = 'used' WHERE "userInvitationId" = $2`,
+			usedAt, invitationId,
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to mark invitation as used: %v", err)
 		}
 	}
 
@@ -2940,18 +2923,9 @@ func (api *Api) AlertPreferencesHandler(w http.ResponseWriter, r *http.Request) 
 			// Upsert preference using verified database talkgroupId
 			query := fmt.Sprintf(`INSERT INTO "userAlertPreferences" ("userId", "systemId", "talkgroupId", "alertEnabled", "toneAlerts", "keywordAlerts", "keywords", "keywordListIds", "toneSetIds") VALUES (%d, %d, %d, %t, %t, %t, $1, $2, $3) ON CONFLICT ("userId", "systemId", "talkgroupId") DO UPDATE SET "alertEnabled" = %t, "toneAlerts" = %t, "keywordAlerts" = %t, "keywords" = $1, "keywordListIds" = $2, "toneSetIds" = $3`, client.User.Id, systemId, dbTalkgroupId, alertEnabled, toneAlerts, keywordAlerts, alertEnabled, toneAlerts, keywordAlerts)
 
-			if api.Controller.Database.Config.DbType == DbTypePostgresql {
-				if _, err := tx.Exec(query, string(keywordsJson), string(keywordListIdsJson), string(toneSetIdsJson)); err != nil {
-					api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update preference: %v", err))
-					return
-				}
-			} else {
-				// MySQL - use REPLACE or INSERT ... ON DUPLICATE KEY UPDATE
-				query = fmt.Sprintf(`REPLACE INTO "userAlertPreferences" ("userId", "systemId", "talkgroupId", "alertEnabled", "toneAlerts", "keywordAlerts", "keywords", "keywordListIds", "toneSetIds") VALUES (%d, %d, %d, %t, %t, %t, ?, ?, ?)`, client.User.Id, systemId, dbTalkgroupId, alertEnabled, toneAlerts, keywordAlerts)
-				if _, err := tx.Exec(query, string(keywordsJson), string(keywordListIdsJson), string(toneSetIdsJson)); err != nil {
-					api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update preference: %v", err))
-					return
-				}
+			if _, err := tx.Exec(query, string(keywordsJson), string(keywordListIdsJson), string(toneSetIdsJson)); err != nil {
+				api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update preference: %v", err))
+				return
 			}
 		}
 
@@ -3069,27 +3043,15 @@ func (api *Api) KeywordListsHandler(w http.ResponseWriter, r *http.Request) {
 
 		keywordsJson, _ := json.Marshal(keywords)
 
-		query := fmt.Sprintf(`INSERT INTO "keywordLists" ("label", "description", "keywords", "order", "createdAt") VALUES ('%s', '%s', '%s', %d, %d)`, escapeQuotes(label), escapeQuotes(description), escapeQuotes(string(keywordsJson)), order, time.Now().UnixMilli())
+		query := fmt.Sprintf(`INSERT INTO "keywordLists" ("label", "description", "keywords", "order", "createdAt") VALUES ('%s', '%s', '%s', %d, %d) RETURNING "keywordListId"`, escapeQuotes(label), escapeQuotes(description), escapeQuotes(string(keywordsJson)), order, time.Now().UnixMilli())
 
-		if api.Controller.Database.Config.DbType == DbTypePostgresql {
-			query += ` RETURNING "keywordListId"`
-			var listId uint64
-			if err := api.Controller.Database.Sql.QueryRow(query).Scan(&listId); err != nil {
-				api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create keyword list: %v", err))
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(fmt.Sprintf(`{"id": %d, "success": true}`, listId)))
-		} else {
-			result, err := api.Controller.Database.Sql.Exec(query)
-			if err != nil {
-				api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create keyword list: %v", err))
-				return
-			}
-			id, _ := result.LastInsertId()
-			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(fmt.Sprintf(`{"id": %d, "success": true}`, id)))
+		var listId uint64
+		if err := api.Controller.Database.Sql.QueryRow(query).Scan(&listId); err != nil {
+			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create keyword list: %v", err))
+			return
 		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(fmt.Sprintf(`{"id": %d, "success": true}`, listId)))
 
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -3337,20 +3299,28 @@ func (api *Api) AccountGetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse timestamps
-	var createdAtTimestamp int64
-	var lastLoginTimestamp int64
+	// Parse timestamps - return nil for invalid/empty values instead of 0
+	var createdAtTimestamp interface{}
+	var lastLoginTimestamp interface{}
 
-	if user.CreatedAt != "" {
+	if user.CreatedAt != "" && user.CreatedAt != "0" {
 		if parsed, err := strconv.ParseInt(user.CreatedAt, 10, 64); err == nil && parsed > 0 {
 			createdAtTimestamp = parsed
+		} else {
+			createdAtTimestamp = nil
 		}
+	} else {
+		createdAtTimestamp = nil
 	}
 
-	if user.LastLogin != "" {
+	if user.LastLogin != "" && user.LastLogin != "0" {
 		if parsed, err := strconv.ParseInt(user.LastLogin, 10, 64); err == nil && parsed > 0 {
 			lastLoginTimestamp = parsed
+		} else {
+			lastLoginTimestamp = nil
 		}
+	} else {
+		lastLoginTimestamp = nil
 	}
 
 	// Get user group information and determine if billing is required
@@ -6385,25 +6355,11 @@ func (api *Api) AdminInviteUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Insert invitation into database
 	var invitationId int64
-	if api.Controller.Database.Config.DbType == DbTypePostgresql {
-		err = api.Controller.Database.Sql.QueryRow(
-			`INSERT INTO "userInvitations" ("email", "code", "userGroupId", "invitedBy", "invitedAt", "expiresAt", "status") 
-			 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING "userInvitationId"`,
-			request.Email, code, request.GroupId, adminUserId, invitedAt, expiresAt, "pending",
-		).Scan(&invitationId)
-	} else {
-		// MySQL/MariaDB
-		result, err := api.Controller.Database.Sql.Exec(
-			`INSERT INTO userInvitations (email, code, userGroupId, invitedBy, invitedAt, expiresAt, status) 
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			request.Email, code, request.GroupId, adminUserId, invitedAt, expiresAt, "pending",
-		)
-		if err != nil {
-			api.exitWithError(w, http.StatusInternalServerError, "Failed to create invitation")
-			return
-		}
-		invitationId, _ = result.LastInsertId()
-	}
+	err = api.Controller.Database.Sql.QueryRow(
+		`INSERT INTO "userInvitations" ("email", "code", "userGroupId", "invitedBy", "invitedAt", "expiresAt", "status") 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING "userInvitationId"`,
+		request.Email, code, request.GroupId, adminUserId, invitedAt, expiresAt, "pending",
+	).Scan(&invitationId)
 
 	if err != nil {
 		log.Printf("Error creating invitation: %v", err)
@@ -6515,25 +6471,11 @@ func (api *Api) GroupAdminInviteUserHandler(w http.ResponseWriter, r *http.Reque
 
 	// Insert invitation into database (invited by group admin)
 	var invitationId int64
-	if api.Controller.Database.Config.DbType == DbTypePostgresql {
-		err = api.Controller.Database.Sql.QueryRow(
-			`INSERT INTO "userInvitations" ("email", "code", "userGroupId", "invitedBy", "invitedAt", "expiresAt", "status") 
-			 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING "userInvitationId"`,
-			request.Email, code, group.Id, groupAdminUser.Id, invitedAt, expiresAt, "pending",
-		).Scan(&invitationId)
-	} else {
-		// MySQL/MariaDB
-		result, err := api.Controller.Database.Sql.Exec(
-			`INSERT INTO userInvitations (email, code, userGroupId, invitedBy, invitedAt, expiresAt, status) 
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			request.Email, code, group.Id, groupAdminUser.Id, invitedAt, expiresAt, "pending",
-		)
-		if err != nil {
-			api.exitWithError(w, http.StatusInternalServerError, "Failed to create invitation")
-			return
-		}
-		invitationId, _ = result.LastInsertId()
-	}
+	err = api.Controller.Database.Sql.QueryRow(
+		`INSERT INTO "userInvitations" ("email", "code", "userGroupId", "invitedBy", "invitedAt", "expiresAt", "status") 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING "userInvitationId"`,
+		request.Email, code, group.Id, groupAdminUser.Id, invitedAt, expiresAt, "pending",
+	).Scan(&invitationId)
 
 	if err != nil {
 		log.Printf("Error creating invitation: %v", err)
@@ -6599,20 +6541,11 @@ func (api *Api) ValidateInvitationHandler(w http.ResponseWriter, r *http.Request
 		UsedAt      sql.NullInt64
 	}
 
-	var err error
-	if api.Controller.Database.Config.DbType == DbTypePostgresql {
-		err = api.Controller.Database.Sql.QueryRow(
-			`SELECT "userInvitationId", "email", "userGroupId", "status", "expiresAt", "usedAt" 
-			 FROM "userInvitations" WHERE "code" = $1`,
-			code,
-		).Scan(&invitation.Id, &invitation.Email, &invitation.UserGroupId, &invitation.Status, &invitation.ExpiresAt, &invitation.UsedAt)
-	} else {
-		err = api.Controller.Database.Sql.QueryRow(
-			`SELECT userInvitationId, email, userGroupId, status, expiresAt, usedAt 
-			 FROM userInvitations WHERE code = ?`,
-			code,
-		).Scan(&invitation.Id, &invitation.Email, &invitation.UserGroupId, &invitation.Status, &invitation.ExpiresAt, &invitation.UsedAt)
-	}
+	err := api.Controller.Database.Sql.QueryRow(
+		`SELECT "userInvitationId", "email", "userGroupId", "status", "expiresAt", "usedAt" 
+		 FROM "userInvitations" WHERE "code" = $1`,
+		code,
+	).Scan(&invitation.Id, &invitation.Email, &invitation.UserGroupId, &invitation.Status, &invitation.ExpiresAt, &invitation.UsedAt)
 
 	if err == sql.ErrNoRows {
 		api.exitWithError(w, http.StatusNotFound, "Invitation not found")

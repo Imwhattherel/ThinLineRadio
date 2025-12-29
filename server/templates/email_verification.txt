@@ -1,9 +1,9 @@
-📻 RDIO SCANNER - EMAIL VERIFICATION
+📻 THINLINE RADIO - EMAIL VERIFICATION
 =====================================
 
-Welcome to Rdio Scanner! 🎉
+Welcome to Thinline Radio! 🎉
 
-Thank you for registering with Rdio Scanner. To complete your account setup and start using our radio scanner service, please verify your email address.
+Thank you for registering with Thinline Radio. To complete your account setup and start using our radio scanner service, please verify your email address.
 
 VERIFY YOUR EMAIL ADDRESS
 =========================
@@ -17,13 +17,13 @@ If the link above doesn't work, copy and paste it into your browser's address ba
 SECURITY NOTICE
 ===============
 🔒 This verification link will expire in 24 hours for security reasons. 
-If you didn't create an account with Rdio Scanner, please ignore this email.
+If you didn't create an account with Thinline Radio, please ignore this email.
 
 WHAT HAPPENS NEXT?
 ==================
 1. Click the verification link above
 2. Your account will be activated immediately  
-3. You can start using Rdio Scanner right away
+3. You can start using Thinline Radio right away
 4. Access your personalized scanner settings
 
 NEED HELP?
@@ -31,7 +31,7 @@ NEED HELP?
 If you have any questions or need assistance, please contact our support team.
 
 ---
-Rdio Scanner
+Thinline Radio
 Radio Scanner Application
 {{BASE_URL}}
 

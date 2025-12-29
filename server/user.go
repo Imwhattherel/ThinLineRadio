@@ -103,8 +103,8 @@ func NewUser(email, password string) *User {
 		Email:                email,
 		Verified:             false,
 		VerificationToken:    "",
-		CreatedAt:            "",
-		LastLogin:            "",
+		CreatedAt:            fmt.Sprintf("%d", time.Now().Unix()), // Initialize with current timestamp
+		LastLogin:            "0",                                   // 0 means never logged in
 		Systems:              "",
 		Delay:                0,
 		SystemDelays:         "",
@@ -122,8 +122,8 @@ func NewUser(email, password string) *User {
 	// Generate verification token
 	user.GenerateVerificationToken()
 
-	// Set creation timestamp
-	user.SetCreatedAt()
+	// Note: CreatedAt is already set above during struct initialization
+	// No need to call SetCreatedAt() again
 
 	if pin, err := generateUserPin(); err == nil {
 		user.Pin = pin

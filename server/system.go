@@ -526,7 +526,6 @@ func (systems *Systems) Write(db *Database) error {
 	systems.mutex.Lock()
 	defer systems.mutex.Unlock()
 
-	log.Printf("DEBUG: Systems.Write() - Starting write operation for %d systems", len(systems.List))
 	formatError := errorFormatter("systems", "write")
 
 	if tx, err = db.Sql.Begin(); err != nil {
@@ -691,7 +690,7 @@ func (systems *Systems) Write(db *Database) error {
 		return formatError(err, "")
 	}
 
-	log.Printf("DEBUG: Systems.Write() - Write operation completed successfully")
+	log.Printf("Systems.Write() - Write operation completed successfully")
 	return nil
 }
 

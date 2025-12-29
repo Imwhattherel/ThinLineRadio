@@ -18,6 +18,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"regexp"
 	"strings"
@@ -270,6 +272,156 @@ func (es *EmailService) sendMailgunEmail(fromName, fromEmail, toEmail, subject, 
 	return nil
 }
 
+// sendSMTPEmail sends an email using direct SMTP connection
+func (es *EmailService) sendSMTPEmail(fromName, fromEmail, toEmail, subject, htmlBody string) error {
+	host := es.Controller.Options.EmailSmtpHost
+	port := es.Controller.Options.EmailSmtpPort
+	username := es.Controller.Options.EmailSmtpUsername
+	password := es.Controller.Options.EmailSmtpPassword
+	useTLS := es.Controller.Options.EmailSmtpUseTLS
+	skipVerify := es.Controller.Options.EmailSmtpSkipVerify
+
+	if host == "" {
+		return fmt.Errorf("SMTP host is not configured")
+	}
+	if port == 0 {
+		port = 587 // Default to submission port
+	}
+
+	// Build the properly formatted email message
+	message := buildEmailMessage(fromName, fromEmail, toEmail, subject, htmlBody)
+
+	// Create the SMTP address
+	addr := fmt.Sprintf("%s:%d", host, port)
+
+	// Configure TLS if enabled
+	var tlsConfig *tls.Config
+	if useTLS {
+		tlsConfig = &tls.Config{
+			ServerName:         host,
+			InsecureSkipVerify: skipVerify,
+		}
+	}
+
+	// Attempt to send the email
+	var err error
+	
+	// If using TLS on port 465 (implicit TLS/SSL)
+	if useTLS && port == 465 {
+		// Use TLS connection from the start (implicit TLS)
+		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect to SMTP server with TLS: %v", err)
+		}
+		defer conn.Close()
+
+		client, err := smtp.NewClient(conn, host)
+		if err != nil {
+			return fmt.Errorf("failed to create SMTP client: %v", err)
+		}
+		defer client.Close()
+
+		// Authenticate if credentials provided
+		if username != "" && password != "" {
+			auth := smtp.PlainAuth("", username, password, host)
+			if err = client.Auth(auth); err != nil {
+				return fmt.Errorf("SMTP authentication failed: %v", err)
+			}
+		}
+
+		// Send the email
+		if err = client.Mail(fromEmail); err != nil {
+			return fmt.Errorf("SMTP MAIL command failed: %v", err)
+		}
+		if err = client.Rcpt(toEmail); err != nil {
+			return fmt.Errorf("SMTP RCPT command failed: %v", err)
+		}
+
+		w, err := client.Data()
+		if err != nil {
+			return fmt.Errorf("SMTP DATA command failed: %v", err)
+		}
+
+		_, err = w.Write([]byte(message))
+		if err != nil {
+			return fmt.Errorf("failed to write email message: %v", err)
+		}
+
+		err = w.Close()
+		if err != nil {
+			return fmt.Errorf("failed to close SMTP data writer: %v", err)
+		}
+
+		err = client.Quit()
+		if err != nil {
+			log.Printf("SMTP QUIT command warning: %v", err)
+		}
+
+		log.Printf("Email sent successfully via SMTP to %s", toEmail)
+		return nil
+	}
+
+	// For other ports (25, 587, etc.), use STARTTLS if TLS is enabled
+	client, err := smtp.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to SMTP server: %v", err)
+	}
+	defer client.Close()
+
+	// Send HELO/EHLO
+	if err = client.Hello(extractDomainFromEmail(fromEmail)); err != nil {
+		return fmt.Errorf("SMTP HELLO command failed: %v", err)
+	}
+
+	// Use STARTTLS if TLS is enabled and not on port 465
+	if useTLS {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err = client.StartTLS(tlsConfig); err != nil {
+				return fmt.Errorf("SMTP STARTTLS failed: %v", err)
+			}
+		}
+	}
+
+	// Authenticate if credentials provided
+	if username != "" && password != "" {
+		auth := smtp.PlainAuth("", username, password, host)
+		if err = client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP authentication failed: %v", err)
+		}
+	}
+
+	// Send the email
+	if err = client.Mail(fromEmail); err != nil {
+		return fmt.Errorf("SMTP MAIL command failed: %v", err)
+	}
+	if err = client.Rcpt(toEmail); err != nil {
+		return fmt.Errorf("SMTP RCPT command failed: %v", err)
+	}
+
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("SMTP DATA command failed: %v", err)
+	}
+
+	_, err = w.Write([]byte(message))
+	if err != nil {
+		return fmt.Errorf("failed to write email message: %v", err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close SMTP data writer: %v", err)
+	}
+
+	err = client.Quit()
+	if err != nil {
+		log.Printf("SMTP QUIT command warning: %v", err)
+	}
+
+	log.Printf("Email sent successfully via SMTP to %s", toEmail)
+	return nil
+}
+
 // sendEmail routes to the appropriate email provider
 func (es *EmailService) sendEmail(fromName, fromEmail, toEmail, subject, htmlBody string) error {
 	provider := es.Controller.Options.EmailProvider
@@ -282,9 +434,11 @@ func (es *EmailService) sendEmail(fromName, fromEmail, toEmail, subject, htmlBod
 		return es.sendSendGridEmail(fromName, fromEmail, toEmail, subject, htmlBody)
 	case "mailgun":
 		return es.sendMailgunEmail(fromName, fromEmail, toEmail, subject, htmlBody)
+	case "smtp":
+		return es.sendSMTPEmail(fromName, fromEmail, toEmail, subject, htmlBody)
 	default:
-		log.Printf("Unknown email provider '%s', must be 'sendgrid' or 'mailgun'", provider)
-		return fmt.Errorf("unknown email provider: %s (must be 'sendgrid' or 'mailgun')", provider)
+		log.Printf("Unknown email provider '%s', must be 'sendgrid', 'mailgun', or 'smtp'", provider)
+		return fmt.Errorf("unknown email provider: %s (must be 'sendgrid', 'mailgun', or 'smtp')", provider)
 	}
 }
 
@@ -774,6 +928,10 @@ func (es *EmailService) SendVerificationEmail(user *User) error {
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
 	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
+	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
 		return fmt.Errorf("from email address not configured")
@@ -1077,6 +1235,10 @@ func (es *EmailService) SendPasswordResetEmail(user *User, resetCode string) err
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
 	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
+	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
 		return fmt.Errorf("from email address not configured")
@@ -1162,6 +1324,10 @@ func (es *EmailService) SendEmailChangeVerificationEmail(user *User, verificatio
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
 	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
+	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
 		return fmt.Errorf("from email address not configured")
@@ -1245,6 +1411,10 @@ func (es *EmailService) SendNewEmailVerificationEmail(newEmail, verificationToke
 	if provider == "mailgun" && (es.Controller.Options.EmailMailgunAPIKey == "" || es.Controller.Options.EmailMailgunDomain == "") {
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
+	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
 	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
@@ -1536,6 +1706,10 @@ func (es *EmailService) SendPasswordChangeVerificationEmail(user *User, verifica
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
 	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
+	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
 		return fmt.Errorf("from email address not configured")
@@ -1613,6 +1787,10 @@ func (es *EmailService) SendInvitationEmail(email, code, invitationLink, groupNa
 	if provider == "mailgun" && (es.Controller.Options.EmailMailgunAPIKey == "" || es.Controller.Options.EmailMailgunDomain == "") {
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
+	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
 	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
@@ -1826,6 +2004,10 @@ func (es *EmailService) SendUserGroupChangeEmail(user *User, newGroup *UserGroup
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
 	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
+	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
 		return fmt.Errorf("from email address not configured")
@@ -1907,6 +2089,10 @@ func (es *EmailService) SendUserMovedFromGroupEmail(admin *User, movedUser *User
 	if provider == "mailgun" && (es.Controller.Options.EmailMailgunAPIKey == "" || es.Controller.Options.EmailMailgunDomain == "") {
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
+	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
 	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
@@ -2311,6 +2497,10 @@ func (es *EmailService) SendTransferRequestEmail(admin *User, transferReq *Trans
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
 	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
+	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")
 		return fmt.Errorf("from email address not configured")
@@ -2584,6 +2774,10 @@ func (es *EmailService) SendTestEmail(toEmail string) error {
 	if provider == "mailgun" && (es.Controller.Options.EmailMailgunAPIKey == "" || es.Controller.Options.EmailMailgunDomain == "") {
 		log.Printf("Mailgun not properly configured - missing API key or domain")
 		return fmt.Errorf("Mailgun not properly configured")
+	}
+	if provider == "smtp" && es.Controller.Options.EmailSmtpHost == "" {
+		log.Printf("SMTP host not configured")
+		return fmt.Errorf("SMTP host not configured")
 	}
 	if es.Controller.Options.EmailSmtpFromEmail == "" {
 		log.Printf("From email address not configured")

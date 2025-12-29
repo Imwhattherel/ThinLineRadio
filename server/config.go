@@ -29,8 +29,6 @@ import (
 )
 
 const (
-	DbTypeMariadb    string = "mariadb"
-	DbTypeMysql      string = "mysql"
 	DbTypePostgresql string = "postgresql"
 )
 
@@ -62,7 +60,6 @@ func NewConfig() *Config {
 		defaultDbType           = DbTypePostgresql
 		defaultDbHost           = "localhost"
 		defaultDbPortPostgreSql = uint(5432)
-		defaultDbPortMariaDb    = uint(3306)
 		defaultListen           = ":3000"
 	)
 
@@ -93,7 +90,7 @@ func NewConfig() *Config {
 	flag.StringVar(&config.DbName, "db_name", "", "database name")
 	flag.StringVar(&config.DbPassword, "db_pass", "", "database password")
 	flag.UintVar(&config.DbPort, "db_port", defaultDbPortPostgreSql, "database host port")
-	flag.StringVar(&config.DbType, "db_type", defaultDbType, fmt.Sprintf("database type, one of %s, %s, %s", DbTypeMariadb, DbTypeMysql, DbTypePostgresql))
+	flag.StringVar(&config.DbType, "db_type", defaultDbType, "database type (postgresql)")
 	flag.StringVar(&config.DbUsername, "db_user", "", "database user name")
 	flag.StringVar(&config.ConfigFile, "config", defaultConfigFile, "server config file")
 	flag.StringVar(&config.Listen, "listen", defaultListen, "listening address")
@@ -141,14 +138,7 @@ func NewConfig() *Config {
 			}
 
 			if config.DbPort, err = cfg.Section("").Key("db_port").Uint(); err != nil {
-				switch config.DbType {
-				case DbTypePostgresql:
-					config.DbPort = defaultDbPortPostgreSql
-				case DbTypeMariadb, DbTypeMysql:
-					config.DbPort = defaultDbPortMariaDb
-				default:
-					config.DbPort = defaultDbPortPostgreSql
-				}
+				config.DbPort = defaultDbPortPostgreSql
 			}
 
 			if v := cfg.Section("").Key("db_user").String(); len(v) > 0 {
@@ -181,8 +171,8 @@ func NewConfig() *Config {
 			}
 		}
 
-		if !(config.DbType == DbTypeMariadb || config.DbType == DbTypeMysql || config.DbType == DbTypePostgresql) {
-			fmt.Printf("unknown database type %s\n", config.DbType)
+		if config.DbType != DbTypePostgresql {
+			fmt.Printf("unknown database type %s (only postgresql is supported)\n", config.DbType)
 			return nil
 		}
 	}

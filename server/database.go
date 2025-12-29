@@ -18,7 +18,6 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -26,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -40,28 +38,11 @@ func NewDatabase(config *Config) *Database {
 
 	database := &Database{Config: config}
 
-	switch config.DbType {
-	case DbTypeMariadb, DbTypeMysql:
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?sql_mode=ANSI_QUOTES", config.DbUsername, config.DbPassword, config.DbHost, config.DbPort, config.DbName)
+	dsn := fmt.Sprintf("postgresql://%s:%s@%s:%d/%s", config.DbUsername, config.DbPassword, config.DbHost, config.DbPort, config.DbName)
 
-		if database.Sql, err = sql.Open("mysql", dsn); err != nil {
-			log.Printf("FATAL: Failed to open MySQL/MariaDB connection: %v", err)
-			log.Printf("Please check your database configuration and ensure the database server is running.")
-			os.Exit(1)
-		}
-
-	case DbTypePostgresql:
-		dsn := fmt.Sprintf("postgresql://%s:%s@%s:%d/%s", config.DbUsername, config.DbPassword, config.DbHost, config.DbPort, config.DbName)
-
-		if database.Sql, err = sql.Open("pgx", dsn); err != nil {
-			log.Printf("FATAL: Failed to open PostgreSQL connection: %v", err)
-			log.Printf("Please check your database configuration and ensure the database server is running.")
-			os.Exit(1)
-		}
-
-	default:
-		log.Printf("FATAL: Unknown database type: %s", config.DbType)
-		log.Printf("Supported database types: mysql, mariadb, postgresql")
+	if database.Sql, err = sql.Open("pgx", dsn); err != nil {
+		log.Printf("FATAL: Failed to open PostgreSQL connection: %v", err)
+		log.Printf("Please check your database configuration and ensure the database server is running.")
 		os.Exit(1)
 	}
 
@@ -109,14 +90,7 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
-	switch db.Config.DbType {
-	case DbTypeMariadb, DbTypeMysql:
-		schema = MysqlSchema
-	case DbTypePostgresql:
-		schema = PostgresqlSchema
-	default:
-		return errors.New("no database schema")
-	}
+	schema = PostgresqlSchema
 
 	if tx, err := db.Sql.Begin(); err == nil {
 		for i, query := range schema {
@@ -271,6 +245,11 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
+	// Migrate callUnits index for fast search performance
+	if err := migrateCallUnitsIndex(db); err != nil {
+		return formatError(err, "")
+	}
+
 	// Remove alert tone columns
 	if err := migrateRemoveAlertTones(db); err != nil {
 		return formatError(err, "")
@@ -278,6 +257,16 @@ func (db *Database) migrate() error {
 
 	// Remove LED color columns
 	if err := migrateRemoveLedColors(db); err != nil {
+		return formatError(err, "")
+	}
+
+	// Fix invalid user timestamps (empty strings or 0 values)
+	if err := migrateFixUserTimestamps(db); err != nil {
+		return formatError(err, "")
+	}
+
+	// Fix auto-increment sequences to prevent duplicate key errors
+	if err := fixAutoIncrementSequences(db); err != nil {
 		return formatError(err, "")
 	}
 
