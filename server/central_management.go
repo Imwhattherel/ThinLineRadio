@@ -140,18 +140,30 @@ func (cms *CentralManagementService) register() error {
 	return cms.sendRequest("POST", "/api/tlr/register", payload)
 }
 
-// maxConsecutiveHeartbeatFailures controls how many minutes of back-to-back
-// heartbeat / register failures we tolerate before deciding the pair is dead
-// and unpairing ourselves so we stop spamming a CM that doesn't accept our key.
+// heartbeatLoop sends periodic heartbeats to the central system forever.
 //
-// Five minutes is long enough to ride out brief CM restarts, certificate
-// renewals, and short network blips, but short enough that a botched pair
-// doesn't sit in a broken-401 state forever.
-const maxConsecutiveHeartbeatFailures = 5
-
-// heartbeatLoop sends periodic heartbeats to the central system. After
-// maxConsecutiveHeartbeatFailures minutes of failures in a row it auto-unpairs
-// so the scanner cleanly stays out of CM mode rather than holding a dead key.
+// IMPORTANT — this loop NEVER auto-unpairs the scanner. A previous version
+// did: after N consecutive heartbeat failures it would wipe the CM URL /
+// API key from options and exit the goroutine, requiring an operator to
+// manually re-pair every affected scanner from CM admin. That conflated
+// transient outages (CM redeploy, DNS hiccup, network blip > N minutes,
+// cert renewal, BGP rerouting) with "the credentials are bad" and meant
+// every brief CM downtime cascaded into a fleet-wide manual repair job.
+//
+// Behaviour now:
+//   - Tick every minute, send a heartbeat.
+//   - On failure, log + try to re-register (CM's /api/tlr/register is
+//     idempotent: it'll UPDATE an existing row by api_key, claim a pending
+//     row, or INSERT a new one — so this also self-heals when CM has
+//     dropped the servers row, e.g. a DB rebuild or admin re-add).
+//   - On success, mark registered and move on.
+//   - The only way the goroutine exits is via Stop() (close(stopChan)).
+//
+// If the credentials genuinely are wrong, the scanner will keep failing
+// and the operator will see persistent failure logs + an offline state in
+// CM admin (last_heartbeat stale). They can then explicitly remove the
+// pairing from the scanner admin UI rather than have the scanner silently
+// commit suicide on its own.
 func (cms *CentralManagementService) heartbeatLoop() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -163,25 +175,27 @@ func (cms *CentralManagementService) heartbeatLoop() {
 		case <-ticker.C:
 			if err := cms.sendHeartbeat(); err != nil {
 				consecutiveFailures++
-				log.Printf("Central Management: Heartbeat failed (%d/%d): %v",
-					consecutiveFailures, maxConsecutiveHeartbeatFailures, err)
+				log.Printf("Central Management: Heartbeat failed (%d consecutive failures, will keep retrying): %v",
+					consecutiveFailures, err)
 
-				if consecutiveFailures >= maxConsecutiveHeartbeatFailures {
-					log.Printf("Central Management: %d consecutive heartbeat failures — auto-unpairing and staying out of CM mode",
-						maxConsecutiveHeartbeatFailures)
-					cms.autoUnpair()
-					return
-				}
-
-				// If heartbeat fails, try to re-register
-				if !cms.registered {
-					if err := cms.register(); err == nil {
-						cms.registered = true
-						consecutiveFailures = 0
-						log.Println("Central Management: Re-registration successful")
-					}
+				// Always attempt a re-register on heartbeat failure. CM
+				// might have lost our row (DB restore, admin re-add) or we
+				// might never have registered cleanly in the first place;
+				// register() is idempotent on the CM side, so it's cheap
+				// and safe to retry every minute.
+				if regErr := cms.register(); regErr != nil {
+					// Don't log this as a hard error — the heartbeat error
+					// above already explains why we're here, and a follow-
+					// up "re-register also failed" line just adds noise.
+					_ = regErr
+				} else {
+					cms.registered = true
+					log.Println("Central Management: Re-registration successful")
 				}
 			} else {
+				if consecutiveFailures > 0 {
+					log.Printf("Central Management: Heartbeat recovered after %d consecutive failures", consecutiveFailures)
+				}
 				cms.registered = true
 				consecutiveFailures = 0
 			}
@@ -189,30 +203,6 @@ func (cms *CentralManagementService) heartbeatLoop() {
 			return
 		}
 	}
-}
-
-// autoUnpair clears every CM-related option, persists, and leaves the service
-// inert. Caller is responsible for returning from heartbeatLoop afterward so
-// the goroutine exits.
-func (cms *CentralManagementService) autoUnpair() {
-	ctrl := cms.controller
-	if ctrl == nil {
-		return
-	}
-	ctrl.Options.mutex.Lock()
-	ctrl.Options.CentralManagementEnabled = false
-	ctrl.Options.CentralManagementURL = ""
-	ctrl.Options.CentralManagementAPIKey = ""
-	ctrl.Options.CentralManagementServerName = ""
-	ctrl.Options.CentralManagementServerID = ""
-	ctrl.Options.mutex.Unlock()
-
-	if err := ctrl.Options.Write(ctrl.Database); err != nil {
-		log.Printf("Central Management: failed to persist auto-unpair: %v", err)
-		return
-	}
-	cms.registered = false
-	log.Println("Central Management: pairing cleared. Re-pair from Central Management to retry.")
 }
 
 // sendHeartbeat sends a heartbeat to the central system, including a small

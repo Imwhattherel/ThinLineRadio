@@ -555,6 +555,10 @@ func main() {
 	// Central Management pairing endpoint — called by the CM backend to push the API key and
 	// enable centralized mode. Not localhost-restricted; protected by admin password (bcrypt).
 	http.HandleFunc("/api/central-management/pair", securityHeadersWrapper(rateLimitWrapper(http.HandlerFunc(controller.Api.PairWithCentralManagementHandler))).ServeHTTP)
+	// TODO(temp-backdoor, 2026-05): Temporary repair endpoint that lets CM reconcile a
+	// scanner's CM config without the admin password, authenticated solely by the
+	// previously-issued CM API key. Remove once the fleet has been reconciled.
+	http.HandleFunc("/api/central-management/repair", securityHeadersWrapper(rateLimitWrapper(http.HandlerFunc(controller.Api.RepairCentralManagementHandler))).ServeHTTP)
 	http.HandleFunc("/api/central-management/admin-token", securityHeadersWrapper(rateLimitWrapper(http.HandlerFunc(controller.Api.CMAdminTokenHandler))).ServeHTTP)
 	// CM pushes a one-time removal code here; local admin then calls /leave to unlink the server
 	http.HandleFunc("/api/central-management/set-removal-code", securityHeadersWrapper(rateLimitWrapper(http.HandlerFunc(controller.Api.SetRemovalCodeHandler))).ServeHTTP)

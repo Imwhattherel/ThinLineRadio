@@ -16,6 +16,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -551,10 +552,15 @@ func (api *Api) PairWithCentralManagementHandler(w http.ResponseWriter, r *http.
 	// We do NOT verify the new key against CM synchronously here. CM's ConnectServer
 	// flow only writes the api_keys row AFTER this pair call returns, so a synchronous
 	// register() from inside the pair handler would always 401 (chicken-and-egg).
-	// The runtime heartbeat loop in CentralManagementService will detect persistent
-	// failures and auto-unpair after a few consecutive 4xx/5xx responses, which gives
-	// us the "if anything goes wrong, stay out of CM mode" behavior without breaking
-	// the standard CM pair flow.
+	// The runtime heartbeat loop in CentralManagementService will keep retrying
+	// register + heartbeat once a minute forever, so a transient CM-side delay or
+	// outage right after pairing self-heals on the next tick.
+	//
+	// The heartbeat loop never auto-unpairs the scanner on its own — if these
+	// credentials end up being wrong they'll just produce persistent failure logs
+	// and an offline state in CM admin until an operator removes the pairing
+	// explicitly (we previously wiped credentials after 5 minutes of failures,
+	// which made every brief CM outage cascade into a fleet-wide manual repair).
 	api.Controller.Options.mutex.Lock()
 	api.Controller.Options.CentralManagementEnabled = true
 	api.Controller.Options.CentralManagementURL = req.CentralManagementURL
@@ -615,6 +621,132 @@ func (api *Api) PairWithCentralManagementHandler(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
 		"message": "Server paired with Central Management successfully",
+	})
+}
+
+// RepairCentralManagementHandler is a TEMPORARY back-door that lets CM
+// reconcile a scanner's Central Management config WITHOUT the admin password,
+// as long as the scanner still has its previously-issued CM API key on disk.
+//
+// Why this exists:
+//
+//	A subset of the deployed fleet drifted out of sync with CM (different
+//	CentralManagementURL, server name, server_id, etc.) and the operators
+//	don't remember the local admin password on those scanners. Because both
+//	sides retained the matching CM API key from the original pairing, that
+//	key already proves CM's identity — there's no need to demand the admin
+//	password just to push fresh CM-side config back down.
+//
+// Authentication contract:
+//
+//	The request MUST present X-API-Key matching the scanner's currently-stored
+//	CentralManagementAPIKey (constant-time compare). If the scanner has no
+//	stored key (e.g. credentials were wiped by the old auto-unpair bug) the
+//	endpoint refuses — those scanners legitimately need a full re-pair via
+//	/api/central-management/pair with the admin password.
+//
+// TODO(temp-backdoor, 2026-05): Remove this handler and its route in
+// server/main.go once the fleet has been reconciled and a follow-up release
+// has been pushed. Tracked alongside the CM-side caller (search for
+// "TODO(temp-backdoor)" in central-management/backend).
+func (api *Api) RepairCentralManagementHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	api.Controller.Options.mutex.Lock()
+	storedKey := api.Controller.Options.CentralManagementAPIKey
+	api.Controller.Options.mutex.Unlock()
+
+	if strings.TrimSpace(storedKey) == "" {
+		log.Printf("Central Management repair: refused — scanner has no stored CM api key (run /api/central-management/pair instead) from %s", r.RemoteAddr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "scanner has no stored CM api key; full re-pair via /api/central-management/pair is required",
+		})
+		return
+	}
+
+	presented := r.Header.Get("X-API-Key")
+	if presented == "" || subtle.ConstantTimeCompare([]byte(presented), []byte(storedKey)) != 1 {
+		log.Printf("Central Management repair: invalid api key from %s", r.RemoteAddr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid api key"})
+		return
+	}
+
+	var req CentralManagementPairRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	// Repair intentionally ignores admin_password and new_admin_password —
+	// that's the whole point of this back-door. The X-API-Key check above
+	// is the only credential.
+	if strings.TrimSpace(req.CentralManagementURL) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "central_management_url is required"})
+		return
+	}
+
+	// If CM didn't supply a fresh api_key in the body, keep the existing one.
+	// CM's expected use is "send me back exactly what I have stored for you",
+	// so this is normally a no-op rotation that just re-pushes the URL/name.
+	apiKeyToStore := strings.TrimSpace(req.APIKey)
+	if apiKeyToStore == "" {
+		apiKeyToStore = storedKey
+	}
+
+	api.Controller.Options.mutex.Lock()
+	api.Controller.Options.CentralManagementEnabled = true
+	api.Controller.Options.CentralManagementURL = strings.TrimSpace(req.CentralManagementURL)
+	api.Controller.Options.CentralManagementAPIKey = apiKeyToStore
+	if strings.TrimSpace(req.ServerName) != "" {
+		api.Controller.Options.CentralManagementServerName = req.ServerName
+		api.Controller.Options.Branding = req.ServerName
+	}
+	effectiveServerID := strings.TrimSpace(req.ServerID)
+	if rr := parseJSONStringOrNumberID(req.RrSystemID); rr != "" {
+		effectiveServerID = rr
+	}
+	if effectiveServerID != "" {
+		api.Controller.Options.CentralManagementServerID = effectiveServerID
+	}
+	if strings.TrimSpace(req.ServerURL) != "" {
+		api.Controller.Options.BaseUrl = strings.TrimSpace(req.ServerURL)
+	}
+	api.Controller.Options.mutex.Unlock()
+
+	if err := api.Controller.Options.Write(api.Controller.Database); err != nil {
+		log.Printf("Central Management repair: failed to persist options: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save configuration"})
+		return
+	}
+
+	// Restart the CM heartbeat service so the freshly-written config takes
+	// effect immediately and the scanner registers/heartbeats on the next tick.
+	if api.Controller.CentralManagement != nil {
+		api.Controller.CentralManagement.Stop()
+	}
+	cms := NewCentralManagementService(api.Controller)
+	api.Controller.CentralManagement = cms
+	go cms.Start()
+
+	log.Printf("Central Management repair: config reconciled with %s (back-door, api-key auth)", req.CentralManagementURL)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"message": "Server reconciled with Central Management successfully (back-door repair)",
 	})
 }
 
