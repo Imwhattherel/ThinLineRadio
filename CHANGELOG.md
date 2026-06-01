@@ -1,5 +1,16 @@
 # Change log
 
+## Version 26.06.03 - Released June 1, 2026
+
+### Fixed
+
+- **Server — Request API Key failed with 500 on production servers**
+  - `Options.WriteKey` used unsafe SQL string interpolation when saving `transcriptionConfig` after collector registration.
+  - Transcription settings containing apostrophes (Whisper prompts, keyterms, etc.) caused the database update to fail even when the collector returned a valid API key.
+  - Now uses parameterized queries (`$1`, `$2`) like the rest of options persistence.
+
+---
+
 ## Version 26.06.02 - Released June 1, 2026
 
 ### Added

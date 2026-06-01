@@ -1911,15 +1911,14 @@ func (options *Options) WriteKey(db *Database, key string, val any, setInMemory 
 	if err != nil {
 		return fmt.Errorf("options WriteKey marshal: %w", err)
 	}
+	valStr := string(valJSON)
 
-	query := fmt.Sprintf(`UPDATE "options" SET "value" = '%s' WHERE "key" = '%s'`, valJSON, key)
-	res, err := db.Sql.Exec(query)
+	res, err := db.Sql.Exec(`UPDATE "options" SET "value" = $1 WHERE "key" = $2`, valStr, key)
 	if err != nil {
 		return fmt.Errorf("options WriteKey update: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		query = fmt.Sprintf(`INSERT INTO "options" ("key", "value") VALUES ('%s', '%s')`, key, valJSON)
-		if _, err = db.Sql.Exec(query); err != nil {
+		if _, err = db.Sql.Exec(`INSERT INTO "options" ("key", "value") VALUES ($1, $2)`, key, valStr); err != nil {
 			return fmt.Errorf("options WriteKey insert: %w", err)
 		}
 	}
