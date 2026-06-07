@@ -24,10 +24,33 @@
   - Server-wide OpenAI API key and base URL for TLR-powered features (tone auto-learn naming, unit alias auto-learn) — separate from speech-to-text transcription.
   - Selectable chat model (`gpt-5.4-mini`, `gpt-4o-mini`, `gpt-4o`) with per-request cost estimate in the admin UI.
 
-- **Server — Transcript alerts for alerting talkgroups**
-  - Talkgroups marked as **Alerting** now fire transcript-based alerts (with voice gating and deduplication) after transcription completes.
+- **Talkgroup — Alerting talkgroup**
+  - Per-talkgroup toggle for dedicated dispatch/page channels: queues transcription when users have alerts enabled (no tone/keyword prefs required), bypasses min call duration, skips tone and keyword matching, and fires **transcript** alerts on voiced calls (with deduplication and alert cooldown).
 
 ### Fixed
+
+- **Client — White flash / strip below tab content when switching tabs** ([#213](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/213))
+  - Angular Material’s light theme paints tab scroll areas white; short tab content left a white band and a brief flash on tab changes.
+  - Console board tabs and global Material tab bodies now use the dark board surface (`--tlr-board-surface`).
+
+- **Admin — Hallucination Removal Patterns could not be saved** ([#212](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/212))
+  - Form stored patterns as a newline string but the textarea getter/setter treated them as an array; saved values did not display and edits did not mark the form dirty.
+  - Bound the field with `formControlName` like other transcription options.
+
+- **Client — Transcripts tab no longer resets filters on every new alert**
+  - Auto-refresh is deferred when filters, pagination, or an in-progress training edit are active; a **“New transcripts are available”** banner lets admins refresh when ready.
+
+- **Server — Approve & Send updates the displayed transcript**
+  - After approving for training, the call’s `transcript` column is updated to the reviewed text (uppercase) so the Transcripts tab shows the training version locally, not just the original STT output.
+
+- **Server — Auto-learn tone sets now queue transcription**
+  - Paging talkgroups with auto-learn enabled (but no user alert prefs) were never transcribed, so pattern discovery could not run. Added `auto_learn_tone_sets` and `auto_learn_unit_aliases` transcription reasons with min-duration bypass.
+
+- **Client — `transcript` alert type in legacy scanner UI**
+  - Alerting-talkgroup transcript alerts now display correctly in the classic/legacy main view (type union and label).
+
+- **Admin — System settings layout / text overflow**
+  - Long toggle descriptions (auto-learn, auto-populate units, transcription prompt hints) no longer squash beside switches; hints wrap below toggles and wide fields span the full grid.
 
 - **Client — App Font applies to scanner only, not admin**
   - Settings → Display → App Font now scopes custom typography to the scanner shell; admin UI stays on Roboto/Material defaults so configuration pages remain readable.
