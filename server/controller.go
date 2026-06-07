@@ -873,6 +873,14 @@ func (controller *Controller) processCallAfterDuplicateCheck(call *Call) {
 			go controller.processToneDetectionAsync(&toneDetectionCall, call)
 		}
 
+		// Auto-learn tone sets from raw ingest audio (does not require configured tone sets).
+		if toneAutoLearnEnabled(call) {
+			learnCall := *call
+			learnCall.Audio = rawAudio
+			learnCall.AudioMime = rawAudioMime
+			go controller.processToneAutoLearnAsync(&learnCall, call, "")
+		}
+
 		// Queue transcription with tone-aware decision
 		go controller.queueTranscriptionIfNeeded(call)
 

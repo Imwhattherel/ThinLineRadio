@@ -332,6 +332,7 @@ func main() {
 
 	http.HandleFunc("/api/admin/tone-import", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ToneImportHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/sync-tone-sets", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SyncToneSetsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/tone-history-analyze", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ToneHistoryAnalyzeHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/config", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ConfigHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/email-logo", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.EmailLogoUploadHandler)).ServeHTTP)

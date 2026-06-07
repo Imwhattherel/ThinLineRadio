@@ -226,19 +226,48 @@ func extractToneLearnCandidates(tones []Tone, cfg AutoLearnToneSetConfig, system
 	return out
 }
 
-// processToneAutoLearn runs after transcription when auto-learn is enabled.
+func toneAutoLearnEnabled(call *Call) bool {
+	return call != nil && call.System != nil && call.Talkgroup != nil &&
+		call.Talkgroup.AutoLearnToneSets &&
+		call.System.AlertsEnabled && call.Talkgroup.AlertsEnabled
+}
+
+// processToneAutoLearnAsync runs tone auto-learn after WriteCall (raw ingest audio).
+func (controller *Controller) processToneAutoLearnAsync(learnCall *Call, originalCall *Call, transcript string) {
+	if learnCall.Id == 0 && originalCall != nil && originalCall.Id > 0 {
+		learnCall.Id = originalCall.Id
+	}
+	if learnCall.Id == 0 && originalCall != nil {
+		for i := 0; i < 100 && originalCall.Id == 0; i++ {
+			time.Sleep(2 * time.Millisecond)
+		}
+		if originalCall.Id > 0 {
+			learnCall.Id = originalCall.Id
+		}
+	}
+	if learnCall.Id == 0 {
+		talkgroupRef := uint(0)
+		if learnCall.Talkgroup != nil {
+			talkgroupRef = learnCall.Talkgroup.TalkgroupRef
+		}
+		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("tone auto-learn skipped: call id not assigned (talkgroup=%d)", talkgroupRef))
+		return
+	}
+	controller.processToneAutoLearn(learnCall, transcript)
+}
+
+// processToneAutoLearn observes paging tones via FFT Discover on call audio.
+// Runs on ingest (tone pages) and after transcription (adds voice transcript to records).
 func (controller *Controller) processToneAutoLearn(call *Call, transcript string) {
 	if controller == nil || call == nil || call.System == nil || call.Talkgroup == nil {
 		return
 	}
 
-	if !call.Talkgroup.AutoLearnToneSets {
+	if !toneAutoLearnEnabled(call) {
 		return
 	}
-	if !call.System.AlertsEnabled || !call.Talkgroup.AlertsEnabled {
-		return
-	}
-	if !controller.isVoiceForToneAlerts(transcript) {
+	transcript = strings.TrimSpace(transcript)
+	if transcript != "" && !controller.isVoiceForToneAlerts(transcript) {
 		return
 	}
 
@@ -262,6 +291,10 @@ func (controller *Controller) processToneAutoLearn(call *Call, transcript string
 		return
 	}
 	if len(tones) == 0 {
+		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+			"tone auto-learn: no tones discovered in call %d on talkgroup %d (%d bytes audio)",
+			call.Id, call.Talkgroup.TalkgroupRef, len(audio),
+		))
 		return
 	}
 
@@ -301,10 +334,25 @@ func (controller *Controller) upsertToneLearnCandidate(call *Call, transcript st
 		return
 	}
 
-	for _, r := range records {
-		if r.CallId == call.Id {
-			return
+	updatedExisting := false
+	for i, r := range records {
+		if r.CallId != call.Id {
+			continue
 		}
+		if strings.TrimSpace(transcript) != "" {
+			records[i].Transcript = strings.ToUpper(strings.TrimSpace(transcript))
+		}
+		updatedExisting = true
+		break
+	}
+	if updatedExisting {
+		recordsJson, _ := json.Marshal(records)
+		updateQuery := `UPDATE "toneSetLearnCandidates" SET "callRecords" = $1, "lastSeenAt" = $2 WHERE "candidateId" = $3`
+		if controller.Database.Config.DbType != DbTypePostgresql {
+			updateQuery = `UPDATE "toneSetLearnCandidates" SET "callRecords" = ?, "lastSeenAt" = ? WHERE "candidateId" = ?`
+		}
+		_, _ = controller.Database.Sql.Exec(updateQuery, string(recordsJson), now, candidateId)
+		return
 	}
 
 	records = append(records, toneLearnCallRecord{

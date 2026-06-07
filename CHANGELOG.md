@@ -1,5 +1,24 @@
 # Change log
 
+## Version 26.06.07 - Released June 7, 2026
+
+### Added
+
+- **Admin — Analyze call history (talkgroup)**
+  - **Analyze tone history** scans recent calls on the channel (default: last 7 days, up to 200 calls), runs FFT tone discovery, and groups patterns by frequency signature.
+  - Only returns patterns seen on at least **3 different calls** — same threshold as live auto-learn (`autoLearnToneSetConfig.callsRequired`).
+  - OpenAI suggests department/station labels from transcripts; each qualifying pattern is listed with its own **Add tone set** button (save config to persist).
+  - Skips stacked-tone calls and patterns that already match configured tone sets on the channel.
+
+### Fixed
+
+- **Server — Tone auto-learn at ingest on paging audio**
+  - Auto-learn now runs on **every ingested call** using raw audio when the talkgroup has auto-learn enabled — not only after transcription on voiced calls.
+  - Works when **no tone sets are configured yet** (production tone matching still requires configured sets; auto-learn uses FFT `Discover` independently).
+  - Logs when zero tones are found in a call; post-transcription pass updates the transcript on the same `callId` candidate record.
+
+---
+
 ## Version 26.06.06 - Released June 7, 2026
 
 ### Fixed

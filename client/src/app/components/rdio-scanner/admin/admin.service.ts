@@ -423,6 +423,23 @@ export interface ToneImportResponse {
     warnings?: string[];
 }
 
+export interface ToneHistorySuggestion {
+    patternType: string;
+    patternDesc: string;
+    callCount: number;
+    callIds: number[];
+    label: string;
+    toneSet: RdioScannerToneSet;
+}
+
+export interface ToneHistoryAnalyzeResponse {
+    callsScanned: number;
+    callsWithTones: number;
+    callsRequired: number;
+    suggestions: ToneHistorySuggestion[];
+    message?: string;
+}
+
 export interface Site {
     id?: number | null;
     label?: string;
@@ -1605,6 +1622,14 @@ export class RdioScannerAdminService implements OnDestroy {
         return this.ngHttpClient.post<any>(
             '/api/admin/sync-tone-sets',
             { url, apiKey, toneSets },
+            { headers: this.getHeaders() },
+        );
+    }
+
+    analyzeToneHistory(systemId: number, talkgroupId: number, limit = 200, hours = 168): Observable<ToneHistoryAnalyzeResponse> {
+        return this.ngHttpClient.post<ToneHistoryAnalyzeResponse>(
+            '/api/admin/tone-history-analyze',
+            { systemId, talkgroupId, limit, hours },
             { headers: this.getHeaders() },
         );
     }

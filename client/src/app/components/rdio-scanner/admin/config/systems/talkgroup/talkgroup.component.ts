@@ -22,7 +22,7 @@ import { FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { MatSelectChange } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { finalize } from 'rxjs/operators';
-import { RdioScannerAdminService, Group, Tag } from '../../../admin.service';
+import { RdioScannerAdminService, Group, Tag, ToneHistorySuggestion } from '../../../admin.service';
 import { RdioScannerToneSet } from '../../../../rdio-scanner';
 
 @Component({
@@ -45,6 +45,11 @@ export class RdioScannerAdminTalkgroupComponent {
     syncToneSetsStatus = '';
     syncSelectedIds   = new Set<string>();
 
+    analyzingToneHistory = false;
+    toneHistoryStatus = '';
+    toneHistorySuggestions: ToneHistorySuggestion[] = [];
+    toneHistoryCallsRequired = 3;
+
     get groups(): Group[] {
         return this.form?.root.get('groups')?.value as Group[];
     }
@@ -55,6 +60,12 @@ export class RdioScannerAdminTalkgroupComponent {
 
     get apikeys(): any[] {
         return this.form?.root.get('apikeys')?.value as any[] || [];
+    }
+
+    get systemId(): number | undefined {
+        const systemForm = this.form?.parent?.parent;
+        const id = systemForm?.get('id')?.value;
+        return typeof id === 'number' && id > 0 ? id : undefined;
     }
 
     constructor(
@@ -225,6 +236,59 @@ export class RdioScannerAdminTalkgroupComponent {
                     this.snackBar.open(msg, '', { duration: 5000 });
                 },
             });
+    }
+
+    analyzeToneHistory(): void {
+        if (!this.form || this.analyzingToneHistory) {
+            return;
+        }
+
+        const talkgroupId = this.form.get('id')?.value;
+        const systemId = this.systemId;
+        if (!talkgroupId || !systemId) {
+            this.snackBar.open('Save this talkgroup first so it has a database ID', '', { duration: 5000 });
+            return;
+        }
+
+        this.analyzingToneHistory = true;
+        this.toneHistoryStatus = '';
+        this.toneHistorySuggestions = [];
+
+        this.adminService.analyzeToneHistory(systemId, talkgroupId)
+            .pipe(finalize(() => { this.analyzingToneHistory = false; }))
+            .subscribe({
+                next: (response) => {
+                    this.toneHistoryCallsRequired = response?.callsRequired ?? 3;
+                    this.toneHistorySuggestions = response?.suggestions || [];
+                    if (this.toneHistorySuggestions.length > 0) {
+                        this.toneHistoryStatus = `Found ${this.toneHistorySuggestions.length} pattern${this.toneHistorySuggestions.length === 1 ? '' : 's'} (≥${this.toneHistoryCallsRequired} calls each) in ${response.callsScanned} calls`;
+                        this.snackBar.open(this.toneHistoryStatus, '', { duration: 5000 });
+                    } else {
+                        this.toneHistoryStatus = response?.message || `No patterns with at least ${this.toneHistoryCallsRequired} matching calls`;
+                        this.snackBar.open(this.toneHistoryStatus, '', { duration: 6000 });
+                    }
+                },
+                error: (error) => {
+                    const message = error?.error?.error || 'Tone history analysis failed';
+                    this.toneHistoryStatus = message;
+                    this.snackBar.open(message, '', { duration: 6000 });
+                },
+            });
+    }
+
+    addSuggestedToneSet(suggestion: ToneHistorySuggestion): void {
+        if (!this.form || !suggestion?.toneSet) {
+            return;
+        }
+        if (!this.form.get('toneDetectionEnabled')?.value) {
+            this.form.get('toneDetectionEnabled')?.setValue(true);
+        }
+        this.addToneSet({
+            ...suggestion.toneSet,
+            label: suggestion.label || suggestion.toneSet.label,
+        });
+        this.toneHistorySuggestions = this.toneHistorySuggestions.filter((s) => s !== suggestion);
+        this.snackBar.open(`Added tone set "${suggestion.label}" — save config to persist`, '', { duration: 5000 });
     }
 
     private appendImportedToneSets(toneSets: RdioScannerToneSet[]): void {
