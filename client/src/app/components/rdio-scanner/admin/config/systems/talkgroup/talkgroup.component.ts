@@ -17,12 +17,12 @@
  * ****************************************************************************
  */
 
-import { Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { MatSelectChange } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { finalize } from 'rxjs/operators';
-import { RdioScannerAdminService, Group, Tag, ToneHistorySuggestion } from '../../../admin.service';
+import { RdioScannerAdminService, Group, Tag, ToneHistoryAnalyzeResponse, ToneHistorySuggestion } from '../../../admin.service';
 import { RdioScannerToneSet } from '../../../../rdio-scanner';
 
 @Component({
@@ -47,9 +47,12 @@ export class RdioScannerAdminTalkgroupComponent {
 
     analyzingToneHistory = false;
     toneHistoryStatus = '';
+    toneHistoryError = false;
+    toneHistoryComplete = false;
     toneHistorySuggestions: ToneHistorySuggestion[] = [];
     toneHistoryPartialPatterns: { patternDesc: string; callCount: number }[] = [];
     toneHistoryCallsRequired = 3;
+    toneHistoryStats: Pick<ToneHistoryAnalyzeResponse, 'callsScanned' | 'callsWithTones' | 'callsWithCandidates' | 'discoverErrors' | 'patternsBelowThreshold' | 'lookbackHours'> | null = null;
 
     get groups(): Group[] {
         return this.form?.root.get('groups')?.value as Group[];
@@ -71,6 +74,7 @@ export class RdioScannerAdminTalkgroupComponent {
 
     constructor(
         private adminService: RdioScannerAdminService,
+        private cdr: ChangeDetectorRef,
         private formBuilder: FormBuilder,
         private snackBar: MatSnackBar,
     ) {
@@ -252,29 +256,46 @@ export class RdioScannerAdminTalkgroupComponent {
         }
 
         this.analyzingToneHistory = true;
+        this.toneHistoryComplete = false;
+        this.toneHistoryError = false;
         this.toneHistoryStatus = '';
         this.toneHistorySuggestions = [];
         this.toneHistoryPartialPatterns = [];
+        this.toneHistoryStats = null;
+        this.cdr.markForCheck();
 
         this.adminService.analyzeToneHistory(systemId, talkgroupId)
-            .pipe(finalize(() => { this.analyzingToneHistory = false; }))
+            .pipe(finalize(() => {
+                this.analyzingToneHistory = false;
+                this.cdr.markForCheck();
+            }))
             .subscribe({
                 next: (response) => {
+                    this.toneHistoryComplete = true;
+                    this.toneHistoryError = false;
                     this.toneHistoryCallsRequired = response?.callsRequired ?? 3;
                     this.toneHistorySuggestions = response?.suggestions || [];
                     this.toneHistoryPartialPatterns = response?.partialPatterns || [];
+                    this.toneHistoryStats = {
+                        callsScanned: response?.callsScanned ?? 0,
+                        callsWithTones: response?.callsWithTones ?? 0,
+                        callsWithCandidates: response?.callsWithCandidates ?? 0,
+                        discoverErrors: response?.discoverErrors ?? 0,
+                        patternsBelowThreshold: response?.patternsBelowThreshold ?? 0,
+                        lookbackHours: response?.lookbackHours ?? 168,
+                    };
                     if (this.toneHistorySuggestions.length > 0) {
-                        this.toneHistoryStatus = `Found ${this.toneHistorySuggestions.length} pattern${this.toneHistorySuggestions.length === 1 ? '' : 's'} (≥${this.toneHistoryCallsRequired} calls each) in ${response.callsScanned} calls`;
-                        this.snackBar.open(this.toneHistoryStatus, '', { duration: 5000 });
+                        this.toneHistoryStatus = `Found ${this.toneHistorySuggestions.length} pattern${this.toneHistorySuggestions.length === 1 ? '' : 's'} (≥${this.toneHistoryCallsRequired} calls each)`;
                     } else {
                         this.toneHistoryStatus = response?.message || `No patterns with at least ${this.toneHistoryCallsRequired} matching calls`;
-                        this.snackBar.open(this.toneHistoryStatus, '', { duration: 6000 });
                     }
+                    this.cdr.markForCheck();
                 },
                 error: (error) => {
-                    const message = error?.error?.error || 'Tone history analysis failed';
-                    this.toneHistoryStatus = message;
-                    this.snackBar.open(message, '', { duration: 6000 });
+                    this.toneHistoryComplete = true;
+                    this.toneHistoryError = true;
+                    this.toneHistoryStatus = error?.error?.error || 'Tone history analysis failed';
+                    this.cdr.markForCheck();
                 },
             });
     }
@@ -291,7 +312,7 @@ export class RdioScannerAdminTalkgroupComponent {
             label: suggestion.label || suggestion.toneSet.label,
         });
         this.toneHistorySuggestions = this.toneHistorySuggestions.filter((s) => s !== suggestion);
-        this.snackBar.open(`Added tone set "${suggestion.label}" — save config to persist`, '', { duration: 5000 });
+        this.cdr.markForCheck();
     }
 
     private appendImportedToneSets(toneSets: RdioScannerToneSet[]): void {

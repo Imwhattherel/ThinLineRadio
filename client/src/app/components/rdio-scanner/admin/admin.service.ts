@@ -445,6 +445,7 @@ export interface ToneHistoryAnalyzeResponse {
     patternsBelowThreshold?: number;
     partialPatterns?: ToneHistoryPartialPattern[];
     callsRequired: number;
+    lookbackHours?: number;
     suggestions: ToneHistorySuggestion[];
     message?: string;
 }
@@ -1493,7 +1494,7 @@ export class RdioScannerAdminService implements OnDestroy {
                 aToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.aToneMinDuration ?? 0.5, [Validators.min(0.1)]),
                 aToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.aToneMaxDuration ?? 1.2, [Validators.min(0.1)]),
                 bToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMinDuration ?? 1.5, [Validators.min(0.1)]),
-                bToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMaxDuration ?? 4.0, [Validators.min(0.1)]),
+                bToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMaxDuration ?? 3.3, [Validators.min(0.1)]),
                 longToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.longToneMinDuration ?? 6, [Validators.min(1)]),
                 longToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.longToneMaxDuration ?? 0, [Validators.min(0)]),
                 callsRequired: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.callsRequired ?? 3, [Validators.min(2)]),
@@ -1640,7 +1641,7 @@ export class RdioScannerAdminService implements OnDestroy {
             '/api/admin/tone-history-analyze',
             { systemId, talkgroupId, limit, hours },
             { headers: this.getHeaders() },
-        );
+        ).pipe(timeout(900000));
     }
 
     private generateToneSetId(): string {

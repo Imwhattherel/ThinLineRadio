@@ -40,8 +40,27 @@ type ToneHistoryAnalyzeResponse struct {
 	PatternsBelowThreshold  int                         `json:"patternsBelowThreshold"`
 	PartialPatterns         []ToneHistoryPartialPattern `json:"partialPatterns,omitempty"`
 	CallsRequired           int                         `json:"callsRequired"`
+	LookbackHours           int                         `json:"lookbackHours"`
 	Suggestions             []ToneHistorySuggestion     `json:"suggestions"`
 	Message                 string                      `json:"message,omitempty"`
+}
+
+const (
+	toneHistoryInitialHours = 168  // 7 days
+	toneHistoryInitialLimit = 200
+	toneHistoryBatchLimit   = 200
+	toneHistoryMaxHours     = 720  // 30 days
+	toneHistoryMaxCalls     = 2000 // safety cap on total FFT work
+)
+
+type toneHistoryCallInput struct {
+	callId             uint64
+	audio              []byte
+	audioMime          string
+	audioFilename      string
+	transcript         string
+	reviewedTranscript string
+	timestamp          int64
 }
 
 type toneHistoryAgg struct {
@@ -96,23 +115,242 @@ func (controller *Controller) analyzeTalkgroupToneHistory(systemId, talkgroupId 
 		return nil, fmt.Errorf("talkgroup %d not found on system %d", talkgroupId, systemId)
 	}
 
-	if limit <= 0 {
-		limit = 200
+	batchLimit := toneHistoryInitialLimit
+	if limit > 0 {
+		batchLimit = limit
 	}
-	if limit > 500 {
-		limit = 500
+	if batchLimit > toneHistoryBatchLimit {
+		batchLimit = toneHistoryBatchLimit
 	}
-	if hours <= 0 {
-		hours = 168
+
+	lookbackHours := toneHistoryInitialHours
+	if hours > 0 {
+		lookbackHours = hours
 	}
-	if hours > 720 {
-		hours = 720
+	if lookbackHours > toneHistoryMaxHours {
+		lookbackHours = toneHistoryMaxHours
 	}
 
 	cfg := controller.Options.AutoLearnToneSetConfig
 	cfg.normalize()
 
+	resp := &ToneHistoryAnalyzeResponse{
+		CallsRequired: cfg.CallsRequired,
+		LookbackHours: lookbackHours,
+		Suggestions:   []ToneHistorySuggestion{},
+	}
+
+	aggregates := make(map[string]*toneHistoryAgg)
+	scannedIds := make(map[uint64]bool)
+	detector := NewToneDetector()
+	var firstDiscoverErr string
+
+	for {
+		batch, err := controller.fetchToneHistoryCallBatch(systemId, talkgroupId, lookbackHours, batchLimit, scannedIds)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			if !toneHistoryShouldExpandLookback(resp, aggregates, cfg.CallsRequired, lookbackHours) {
+				break
+			}
+			if lookbackHours >= toneHistoryMaxHours || resp.CallsScanned >= toneHistoryMaxCalls {
+				break
+			}
+			lookbackHours = toneHistoryNextLookbackHours(lookbackHours)
+			resp.LookbackHours = lookbackHours
+			continue
+		}
+
+		for _, call := range batch {
+			scannedIds[call.callId] = true
+			resp.CallsScanned++
+
+			mime := toneHistoryAudioMime(call.audioMime, call.audioFilename)
+			tones, err := detector.Discover(call.audio, mime)
+			if err != nil {
+				resp.DiscoverErrors++
+				if firstDiscoverErr == "" {
+					firstDiscoverErr = fmt.Sprintf("call %d: %v", call.callId, err)
+				}
+				continue
+			}
+			if len(tones) == 0 {
+				continue
+			}
+			resp.CallsWithTones++
+
+			candidates := extractToneLearnCandidates(tones, cfg, systemId, talkgroupId)
+			if len(candidates) == 0 {
+				relaxed := relaxedAutoLearnToneSetConfig(cfg)
+				if relaxed.AToneMaxDuration != cfg.AToneMaxDuration || relaxed.BToneMaxDuration != cfg.BToneMaxDuration {
+					candidates = extractToneLearnCandidates(tones, relaxed, systemId, talkgroupId)
+				}
+			}
+			if len(candidates) == 0 {
+				continue
+			}
+			resp.CallsWithCandidates++
+
+			stackedCall := len(candidates) > 1
+			transcriptText := ""
+			if call.reviewedTranscript != "" {
+				transcriptText = strings.ToUpper(call.reviewedTranscript)
+			} else if call.transcript != "" {
+				transcriptText = strings.ToUpper(call.transcript)
+			}
+
+			for _, cand := range candidates {
+				if toneSetExistsOnTalkgroup(talkgroup.ToneSets, cand, cfg.FrequencyToleranceHz) {
+					continue
+				}
+				agg, exists := aggregates[cand.SignatureHash]
+				if !exists {
+					aggregates[cand.SignatureHash] = &toneHistoryAgg{cand: cand}
+					agg = aggregates[cand.SignatureHash]
+				}
+				dup := false
+				for _, r := range agg.records {
+					if r.CallId == call.callId {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					continue
+				}
+				agg.records = append(agg.records, toneLearnCallRecord{
+					CallId:      call.callId,
+					Transcript:  transcriptText,
+					Timestamp:   call.timestamp,
+					StackedCall: stackedCall,
+				})
+			}
+		}
+
+		controller.buildToneHistorySuggestions(sys, talkgroup, cfg, aggregates, resp)
+
+		if len(resp.Suggestions) > 0 {
+			break
+		}
+		if !toneHistoryShouldExpandLookback(resp, aggregates, cfg.CallsRequired, lookbackHours) {
+			break
+		}
+		if resp.CallsScanned >= toneHistoryMaxCalls {
+			break
+		}
+		if lookbackHours >= toneHistoryMaxHours {
+			break
+		}
+		lookbackHours = toneHistoryNextLookbackHours(lookbackHours)
+		resp.LookbackHours = lookbackHours
+	}
+
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+		"tone history analyze: system=%d talkgroup=%d (TGID %d) lookbackHours=%d scanned=%d withTones=%d withCandidates=%d discoverErrors=%d belowThreshold=%d suggestions=%d aDur=%.1f-%.1f bDur=%.1f-%.1f callsRequired=%d%s",
+		systemId, talkgroupId, talkgroup.TalkgroupRef, resp.LookbackHours,
+		resp.CallsScanned, resp.CallsWithTones, resp.CallsWithCandidates, resp.DiscoverErrors,
+		resp.PatternsBelowThreshold, len(resp.Suggestions),
+		cfg.AToneMinDuration, cfg.AToneMaxDuration, cfg.BToneMinDuration, cfg.BToneMaxDuration, cfg.CallsRequired,
+		func() string {
+			if firstDiscoverErr != "" {
+				return " firstDiscoverErr=" + firstDiscoverErr
+			}
+			return ""
+		}(),
+	))
+
+	if len(resp.Suggestions) == 0 {
+		lookbackLabel := toneHistoryLookbackLabel(resp.LookbackHours)
+		switch {
+		case resp.CallsScanned == 0:
+			resp.Message = fmt.Sprintf("No calls with audio found in %s for this talkgroup.", lookbackLabel)
+		case resp.CallsWithTones == 0:
+			resp.Message = fmt.Sprintf(
+				"Scanned %d calls (%s) but FFT found no sustained tones (discover errors: %d). Stored audio may be voice-only or ffmpeg could not decode calls.",
+				resp.CallsScanned, lookbackLabel, resp.DiscoverErrors,
+			)
+		case resp.CallsWithCandidates == 0:
+			hint := ""
+			relaxed := relaxedAutoLearnToneSetConfig(cfg)
+			if relaxed.AToneMaxDuration > cfg.AToneMaxDuration || relaxed.BToneMaxDuration > cfg.BToneMaxDuration {
+				hint = fmt.Sprintf(
+					" Many Ohio paging tones are ~1.0s A and ~3s B — try A max %.1fs and B max %.1fs in Admin → Options.",
+					relaxed.AToneMaxDuration, relaxed.BToneMaxDuration,
+				)
+			}
+			resp.Message = fmt.Sprintf(
+				"Scanned %d calls (%s), %d had raw tones, but none matched auto-learn duration windows (A %.1f–%.1fs, B %.1f–%.1fs, long ≥%.1fs).%s",
+				resp.CallsScanned, lookbackLabel, resp.CallsWithTones, cfg.AToneMinDuration, cfg.AToneMaxDuration, cfg.BToneMinDuration, cfg.BToneMaxDuration, cfg.LongToneMinDuration, hint,
+			)
+		case resp.PatternsBelowThreshold > 0:
+			resp.Message = fmt.Sprintf(
+				"Found %d pattern(s) but none reached %d calls yet (scanned %d calls in %s, %d with matching A+B/long patterns). See partial patterns below.",
+				resp.PatternsBelowThreshold, cfg.CallsRequired, resp.CallsScanned, lookbackLabel, resp.CallsWithCandidates,
+			)
+		default:
+			resp.Message = fmt.Sprintf(
+				"No new tone patterns with at least %d matching calls in %s (scanned %d calls, %d with tones).",
+				cfg.CallsRequired, lookbackLabel, resp.CallsScanned, resp.CallsWithTones,
+			)
+		}
+	}
+
+	return resp, nil
+}
+
+func toneHistoryNextLookbackHours(current int) int {
+	next := current * 2
+	if next > toneHistoryMaxHours {
+		return toneHistoryMaxHours
+	}
+	return next
+}
+
+func toneHistoryLookbackLabel(hours int) string {
+	days := hours / 24
+	if days >= 1 && hours%24 == 0 {
+		if days == 1 {
+			return "the last day"
+		}
+		return fmt.Sprintf("the last %d days", days)
+	}
+	return fmt.Sprintf("the last %d hours", hours)
+}
+
+func toneHistoryShouldExpandLookback(resp *ToneHistoryAnalyzeResponse, aggregates map[string]*toneHistoryAgg, callsRequired, lookbackHours int) bool {
+	if len(resp.Suggestions) > 0 {
+		return false
+	}
+	if resp.CallsScanned >= toneHistoryMaxCalls {
+		return false
+	}
+	if lookbackHours >= toneHistoryMaxHours {
+		return false
+	}
+	for _, agg := range aggregates {
+		if len(agg.records) > 0 && len(agg.records) < callsRequired {
+			return true
+		}
+	}
+	if resp.PatternsBelowThreshold > 0 {
+		return true
+	}
+	if resp.CallsWithCandidates == 0 {
+		return true
+	}
+	return false
+}
+
+func (controller *Controller) fetchToneHistoryCallBatch(systemId, talkgroupId uint64, hours, limit int, exclude map[uint64]bool) ([]toneHistoryCallInput, error) {
 	since := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
+	fetchLimit := limit * 3
+	if fetchLimit < limit+50 {
+		fetchLimit = limit + 50
+	}
+	if fetchLimit > 600 {
+		fetchLimit = 600
+	}
 
 	var query string
 	if controller.Database.Config.DbType == DbTypePostgresql {
@@ -121,21 +359,13 @@ func (controller *Controller) analyzeTalkgroupToneHistory(systemId, talkgroupId 
 		query = `SELECT "callId", "audio", "audioMime", "audioFilename", "transcript", "reviewedTranscript", "timestamp" FROM "calls" WHERE "systemId" = ? AND "talkgroupId" = ? AND "timestamp" >= ? AND length("audio") > 0 ORDER BY "timestamp" DESC LIMIT ?`
 	}
 
-	rows, err := controller.Database.Sql.Query(query, systemId, talkgroupId, since, limit)
+	rows, err := controller.Database.Sql.Query(query, systemId, talkgroupId, since, fetchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("query calls: %w", err)
 	}
 	defer rows.Close()
 
-	resp := &ToneHistoryAnalyzeResponse{
-		CallsRequired: cfg.CallsRequired,
-		Suggestions:   []ToneHistorySuggestion{},
-	}
-
-	aggregates := make(map[string]*toneHistoryAgg)
-	detector := NewToneDetector()
-	var firstDiscoverErr string
-
+	out := make([]toneHistoryCallInput, 0, limit)
 	for rows.Next() {
 		var (
 			callId             uint64
@@ -149,67 +379,37 @@ func (controller *Controller) analyzeTalkgroupToneHistory(systemId, talkgroupId 
 		if err := rows.Scan(&callId, &audio, &audioMime, &audioFilename, &transcript, &reviewedTranscript, &timestamp); err != nil {
 			return nil, fmt.Errorf("scan call: %w", err)
 		}
-		resp.CallsScanned++
-
-		mime := toneHistoryAudioMime(audioMime, audioFilename)
-		tones, err := detector.Discover(audio, mime)
-		if err != nil {
-			resp.DiscoverErrors++
-			if firstDiscoverErr == "" {
-				firstDiscoverErr = fmt.Sprintf("call %d: %v", callId, err)
-			}
+		if exclude[callId] {
 			continue
 		}
-		if len(tones) == 0 {
-			continue
+		row := toneHistoryCallInput{
+			callId:        callId,
+			audio:         audio,
+			audioMime:     audioMime,
+			audioFilename: audioFilename,
+			timestamp:     timestamp,
 		}
-		resp.CallsWithTones++
-
-		candidates := extractToneLearnCandidates(tones, cfg, systemId, talkgroupId)
-		if len(candidates) == 0 {
-			continue
+		if reviewedTranscript.Valid {
+			row.reviewedTranscript = strings.TrimSpace(reviewedTranscript.String)
 		}
-		resp.CallsWithCandidates++
-
-		stackedCall := len(candidates) > 1
-
-		transcriptText := ""
-		if reviewedTranscript.Valid && strings.TrimSpace(reviewedTranscript.String) != "" {
-			transcriptText = strings.ToUpper(strings.TrimSpace(reviewedTranscript.String))
-		} else if transcript.Valid {
-			transcriptText = strings.ToUpper(strings.TrimSpace(transcript.String))
+		if transcript.Valid {
+			row.transcript = strings.TrimSpace(transcript.String)
 		}
-
-		for _, cand := range candidates {
-			if toneSetExistsOnTalkgroup(talkgroup.ToneSets, cand, cfg.FrequencyToleranceHz) {
-				continue
-			}
-			agg, exists := aggregates[cand.SignatureHash]
-			if !exists {
-				aggregates[cand.SignatureHash] = &toneHistoryAgg{cand: cand}
-				agg = aggregates[cand.SignatureHash]
-			}
-			dup := false
-			for _, r := range agg.records {
-				if r.CallId == callId {
-					dup = true
-					break
-				}
-			}
-			if dup {
-				continue
-			}
-			agg.records = append(agg.records, toneLearnCallRecord{
-				CallId:      callId,
-				Transcript:  transcriptText,
-				Timestamp:   timestamp,
-				StackedCall: stackedCall,
-			})
+		out = append(out, row)
+		if len(out) >= limit {
+			break
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate calls: %w", err)
 	}
+	return out, nil
+}
+
+func (controller *Controller) buildToneHistorySuggestions(sys *System, talkgroup *Talkgroup, cfg AutoLearnToneSetConfig, aggregates map[string]*toneHistoryAgg, resp *ToneHistoryAnalyzeResponse) {
+	resp.Suggestions = []ToneHistorySuggestion{}
+	resp.PartialPatterns = []ToneHistoryPartialPattern{}
+	resp.PatternsBelowThreshold = 0
 
 	for _, agg := range aggregates {
 		if len(agg.records) < cfg.CallsRequired {
@@ -251,49 +451,6 @@ func (controller *Controller) analyzeTalkgroupToneHistory(systemId, talkgroupId 
 			ToneSet:     toneSet,
 		})
 	}
-
-	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
-		"tone history analyze: system=%d talkgroup=%d (TGID %d) scanned=%d withTones=%d withCandidates=%d discoverErrors=%d belowThreshold=%d suggestions=%d aDur=%.1f-%.1f bDur=%.1f-%.1f callsRequired=%d%s",
-		systemId, talkgroupId, talkgroup.TalkgroupRef,
-		resp.CallsScanned, resp.CallsWithTones, resp.CallsWithCandidates, resp.DiscoverErrors,
-		resp.PatternsBelowThreshold, len(resp.Suggestions),
-		cfg.AToneMinDuration, cfg.AToneMaxDuration, cfg.BToneMinDuration, cfg.BToneMaxDuration, cfg.CallsRequired,
-		func() string {
-			if firstDiscoverErr != "" {
-				return " firstDiscoverErr=" + firstDiscoverErr
-			}
-			return ""
-		}(),
-	))
-
-	if len(resp.Suggestions) == 0 {
-		switch {
-		case resp.CallsScanned == 0:
-			resp.Message = fmt.Sprintf("No calls with audio found in the last %d hours for this talkgroup.", hours)
-		case resp.CallsWithTones == 0:
-			resp.Message = fmt.Sprintf(
-				"Scanned %d calls but FFT found no sustained tones (discover errors: %d). Stored audio may be voice-only or ffmpeg could not decode calls.",
-				resp.CallsScanned, resp.DiscoverErrors,
-			)
-		case resp.CallsWithCandidates == 0:
-			resp.Message = fmt.Sprintf(
-				"Scanned %d calls, %d had raw tones, but none matched auto-learn duration windows (A %.1f–%.1fs, B %.1f–%.1fs, long ≥%.1fs). Check Admin → Options → auto-learn tone durations.",
-				resp.CallsScanned, resp.CallsWithTones, cfg.AToneMinDuration, cfg.AToneMaxDuration, cfg.BToneMinDuration, cfg.BToneMaxDuration, cfg.LongToneMinDuration,
-			)
-		case resp.PatternsBelowThreshold > 0:
-			resp.Message = fmt.Sprintf(
-				"Found %d pattern(s) but none reached %d calls yet (scanned %d calls, %d with matching A+B/long patterns). See partial patterns below.",
-				resp.PatternsBelowThreshold, cfg.CallsRequired, resp.CallsScanned, resp.CallsWithCandidates,
-			)
-		default:
-			resp.Message = fmt.Sprintf(
-				"No new tone patterns with at least %d matching calls in the last %d hours (scanned %d calls, %d with tones).",
-				cfg.CallsRequired, hours, resp.CallsScanned, resp.CallsWithTones,
-			)
-		}
-	}
-
-	return resp, nil
 }
 
 func (admin *Admin) ToneHistoryAnalyzeHandler(w http.ResponseWriter, r *http.Request) {

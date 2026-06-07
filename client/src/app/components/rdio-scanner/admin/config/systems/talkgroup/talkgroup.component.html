@@ -216,35 +216,49 @@
     <div class="row" *ngIf="form.get('toneDetectionEnabled')?.value || form.get('autoLearnToneSets')?.value">
         <p>
             <span class="mat-body">Analyze call history</span><br>
-            <span class="mat-caption">Scan recent calls on this channel, detect paging tones, and suggest labels via OpenAI. Only patterns seen on at least 3 different calls are shown (same threshold as auto-learn).</span>
+            <span class="mat-caption">Starts with the last 7 days (200 calls per batch), then searches further back automatically when patterns need more calls or nothing matches. Suggestions require the same call threshold as auto-learn.</span>
         </p>
         <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
             <button type="button" mat-stroked-button color="accent"
                     [disabled]="analyzingToneHistory || !form.get('id')?.value"
                     (click)="analyzeToneHistory()">
-                <mat-icon>history</mat-icon>
+                <mat-icon>{{ analyzingToneHistory ? 'hourglass_empty' : 'history' }}</mat-icon>
                 {{ analyzingToneHistory ? 'Analyzing…' : 'Analyze tone history' }}
             </button>
             <span *ngIf="!form.get('id')?.value" class="mat-caption" style="color: #888;">
                 Save this talkgroup first to run history analysis.
             </span>
-            <span *ngIf="toneHistoryStatus" class="mat-caption" [style.color]="toneHistorySuggestions.length ? '#4caf50' : '#aaa'">
-                {{ toneHistoryStatus }}
+            <span *ngIf="analyzingToneHistory" class="mat-caption" style="color: #888;">
+                Scanning call history — may expand beyond 7 days if more calls are needed.
             </span>
-            <div *ngIf="toneHistoryPartialPatterns.length > 0" style="margin-top: 4px;">
-                <div class="mat-caption" style="color: #888; margin-bottom: 6px;">Patterns seen but not yet at {{ toneHistoryCallsRequired }} calls:</div>
-                <div *ngFor="let partial of toneHistoryPartialPatterns" class="mat-caption" style="color: #aaa; margin-bottom: 4px;">
-                    {{ partial.patternDesc }} · {{ partial.callCount }}/{{ toneHistoryCallsRequired }} calls
+            <div *ngIf="toneHistoryComplete && (toneHistoryStatus || toneHistorySuggestions.length || toneHistoryPartialPatterns.length)"
+                 style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                <div class="mat-caption" style="font-weight: 600;"
+                     [style.color]="toneHistoryError ? '#f44336' : (toneHistorySuggestions.length ? '#4caf50' : '#aaa')">
+                    {{ toneHistoryStatus }}
                 </div>
-            </div>
-            <div *ngFor="let suggestion of toneHistorySuggestions"
-                 style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
-                <div style="font-weight: 600; margin-bottom: 4px;">{{ suggestion.label }}</div>
-                <div class="mat-caption" style="color: #aaa; margin-bottom: 8px;">{{ suggestion.patternDesc }} · {{ suggestion.callCount }} calls</div>
-                <button type="button" mat-stroked-button color="primary" (click)="addSuggestedToneSet(suggestion)">
-                    <mat-icon>add</mat-icon>
-                    Add tone set
-                </button>
+                <div *ngIf="toneHistoryStats && !toneHistoryError" class="mat-caption" style="color: #888;">
+                    Scanned {{ toneHistoryStats.callsScanned }} calls
+                    <span *ngIf="toneHistoryStats.lookbackHours"> (searched {{ toneHistoryStats.lookbackHours >= 24 ? (toneHistoryStats.lookbackHours / 24) + ' days' : toneHistoryStats.lookbackHours + ' hours' }} back)</span>
+                    · {{ toneHistoryStats.callsWithTones }} with tones ·
+                    {{ toneHistoryStats.callsWithCandidates }} matching learn windows
+                    <span *ngIf="toneHistoryStats.discoverErrors"> · {{ toneHistoryStats.discoverErrors }} decode errors</span>
+                </div>
+                <div *ngIf="toneHistoryPartialPatterns.length > 0">
+                    <div class="mat-caption" style="color: #888; margin-bottom: 6px;">Patterns seen but not yet at {{ toneHistoryCallsRequired }} calls:</div>
+                    <div *ngFor="let partial of toneHistoryPartialPatterns" class="mat-caption" style="color: #aaa; margin-bottom: 4px;">
+                        {{ partial.patternDesc }} · {{ partial.callCount }}/{{ toneHistoryCallsRequired }} calls
+                    </div>
+                </div>
+                <div *ngFor="let suggestion of toneHistorySuggestions"
+                     style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 12px;">
+                    <div style="font-weight: 600; margin-bottom: 4px;">{{ suggestion.label }}</div>
+                    <div class="mat-caption" style="color: #aaa; margin-bottom: 8px;">{{ suggestion.patternDesc }} · {{ suggestion.callCount }} calls</div>
+                    <button type="button" mat-stroked-button color="primary" (click)="addSuggestedToneSet(suggestion)">
+                        <mat-icon>add</mat-icon>
+                        Add tone set
+                    </button>
+                </div>
             </div>
         </div>
     </div>

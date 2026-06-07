@@ -1847,6 +1847,16 @@ func (options *Options) Read(db *Database) error {
 		}
 	}
 
+	options.AutoLearnToneSetConfig.normalize()
+	if migrateLegacyAutoLearnToneDurations(&options.AutoLearnToneSetConfig) {
+		cfg := options.AutoLearnToneSetConfig
+		if err := options.WriteKey(db, "autoLearnToneSetConfig", cfg, func() {
+			options.AutoLearnToneSetConfig = cfg
+		}); err != nil {
+			return formatError(err, "autoLearnToneSetConfig migration")
+		}
+	}
+
 	return nil
 }
 

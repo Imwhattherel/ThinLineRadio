@@ -1,5 +1,31 @@
 # Change log
 
+## Version 26.06.09 - Released June 8, 2026
+
+### Fixed
+
+- **Admin — Analyze tone history UI**
+  - Button no longer stays on “Analyzing…” after the request completes (change detection under OnPush parent).
+  - Results render inline under the button instead of a snackbar (stats, partial patterns, suggestion cards).
+
+- **Server — Auto-learn duration windows**
+  - Default A-tone max **1.2 s**, B-tone max **3.3 s** (Lordstown-style paging is ~1.0 s A / ~3.1 s B).
+  - Migrates legacy presets (A max 0.9 s, B max 2.5 s or 4.0 s) on server start.
+
+- **Server — Analyze tone history lookback**
+  - Starts at **7 days / 200 calls per batch**, then expands automatically (14 → 28 → 30 days, up to 2000 calls) when no patterns qualify or partial patterns need more matching calls.
+  - Response includes `lookbackHours` so the UI shows how far back was searched.
+
+### Added
+
+- **Server — `import-lfd-calls` dev tool**
+  - Imports prod-export MP3s into local Postgres for tone-debug (`server/cmd/import-lfd-calls`).
+
+- **Server — Regression tests**
+  - Auto-learn config migration, LFD DB discover, tone history expand logic.
+
+---
+
 ## Version 26.06.08 - Released June 7, 2026
 
 ### Fixed

@@ -35,7 +35,7 @@ func DefaultAutoLearnToneSetConfig() AutoLearnToneSetConfig {
 		AToneMinDuration:     0.5,
 		AToneMaxDuration:     1.2,
 		BToneMinDuration:     1.5,
-		BToneMaxDuration:     4.0,
+		BToneMaxDuration:     3.3,
 		LongToneMinDuration:  6.0,
 		LongToneMaxDuration:  0,
 		CallsRequired:        3,
@@ -66,6 +66,38 @@ func (c *AutoLearnToneSetConfig) normalize() {
 	if c.FrequencyToleranceHz <= 0 {
 		c.FrequencyToleranceHz = def.FrequencyToleranceHz
 	}
+}
+
+// migrateLegacyAutoLearnToneDurations widens early-release windows that reject real Ohio paging
+// (e.g. Lordstown LFD A≈1.0s, B≈3.1s). Returns true when values were updated.
+func migrateLegacyAutoLearnToneDurations(cfg *AutoLearnToneSetConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := false
+	if cfg.AToneMinDuration == 0.5 && cfg.AToneMaxDuration == 0.9 {
+		cfg.AToneMaxDuration = 1.2
+		changed = true
+	}
+	if cfg.BToneMinDuration == 1.5 && (cfg.BToneMaxDuration == 2.5 || cfg.BToneMaxDuration == 4.0) {
+		cfg.BToneMaxDuration = 3.3
+		changed = true
+	}
+	return changed
+}
+
+// relaxedAutoLearnToneSetConfig returns cfg with at least the current default max duration windows.
+func relaxedAutoLearnToneSetConfig(cfg AutoLearnToneSetConfig) AutoLearnToneSetConfig {
+	def := DefaultAutoLearnToneSetConfig()
+	out := cfg
+	out.normalize()
+	if out.AToneMaxDuration < def.AToneMaxDuration {
+		out.AToneMaxDuration = def.AToneMaxDuration
+	}
+	if out.BToneMaxDuration < def.BToneMaxDuration {
+		out.BToneMaxDuration = def.BToneMaxDuration
+	}
+	return out
 }
 
 type toneLearnPatternType string
