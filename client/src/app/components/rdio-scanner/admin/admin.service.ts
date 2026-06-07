@@ -376,6 +376,44 @@ export interface Options {
     centralManagementServerID?: string;
     /** Word lists for transcript unit/channel parsing (full admin config includes this). */
     transcriptParserConfig?: TranscriptConfig;
+    openAIIntegration?: OpenAIIntegration;
+    autoLearnToneSetConfig?: AutoLearnToneSetConfig;
+}
+
+export interface OpenAIIntegration {
+    apiKey?: string;
+    baseUrl?: string;
+    /** Chat model for tone/unit auto-learn naming (default gpt-5.4-mini). */
+    model?: string;
+}
+
+export interface OpenAIChatModelOption {
+    id: string;
+    label: string;
+    inputPerM: number;
+    outputPerM: number;
+    estPerNamingUSD: number;
+}
+
+export const OPENAI_CHAT_MODEL_OPTIONS: OpenAIChatModelOption[] = [
+    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini (recommended)', inputPerM: 0.75, outputPerM: 4.50, estPerNamingUSD: 0.002 },
+    { id: 'gpt-4o-mini', label: 'GPT-4o mini (lowest cost)', inputPerM: 0.15, outputPerM: 0.60, estPerNamingUSD: 0.0004 },
+    { id: 'gpt-4o', label: 'GPT-4o (highest quality)', inputPerM: 2.50, outputPerM: 10.00, estPerNamingUSD: 0.006 },
+];
+
+export interface AutoLearnToneSetConfig {
+    aToneMinDuration?: number;
+    aToneMaxDuration?: number;
+    bToneMinDuration?: number;
+    bToneMaxDuration?: number;
+    longToneMinDuration?: number;
+    longToneMaxDuration?: number;
+    callsRequired?: number;
+    frequencyToleranceHz?: number;
+    /** @deprecated migrated to openAIIntegration */
+    openAIAPIKey?: string;
+    /** @deprecated migrated to openAIIntegration */
+    openAIAPIURL?: string;
 }
 
 export interface ToneImportResponse {
@@ -417,6 +455,18 @@ export interface System {
     /** When true, merge heard unit ID + label from calls into this system's unit list (default off; independent of autoPopulate) */
     autoPopulateUnits?: boolean;
     transcriptionPrompt?: string;       // Custom Whisper/AssemblyAI prompt; overrides global when non-empty
+    autoLearnToneSets?: boolean;
+    autoLearnToneSetsTagIds?: number[];
+    autoLearnToneSetsAutoOffDays?: number;
+    autoLearnToneSetsExpiresAt?: number;
+    bulkToneDetectionEnabled?: boolean;
+    bulkToneDetectionTagIds?: number[];
+    bulkToneDetectionAutoOffDays?: number;
+    bulkToneDetectionExpiresAt?: number;
+    autoLearnUnitAliases?: boolean;
+    autoLearnUnitAliasesTagIds?: number[];
+    autoLearnUnitAliasesAutoOffDays?: number;
+    autoLearnUnitAliasesExpiresAt?: number;
 }
 
 export interface Tag {
@@ -458,6 +508,9 @@ export interface Talkgroup {
     alertsEnabled?: boolean;
     // Custom transcription prompt; overrides system and global prompts when non-empty
     transcriptionPrompt?: string;
+    autoLearnToneSets?: boolean;
+    autoLearnUnitAliases?: boolean;
+    alertingTalkgroup?: boolean;
 }
 
 export interface Unit {
@@ -1395,6 +1448,31 @@ export class RdioScannerAdminService implements OnDestroy {
             centralManagementAPIKey: this.ngFormBuilder.control(options?.centralManagementAPIKey || ''),
             centralManagementServerName: this.ngFormBuilder.control(options?.centralManagementServerName || ''),
             centralManagementServerID: this.ngFormBuilder.control(options?.centralManagementServerID || ''),
+            openAIIntegration: this.ngFormBuilder.group({
+                baseUrl: this.ngFormBuilder.control(
+                    options?.openAIIntegration?.baseUrl
+                    || options?.autoLearnToneSetConfig?.openAIAPIURL
+                    || 'https://api.openai.com',
+                ),
+                apiKey: this.ngFormBuilder.control(
+                    options?.openAIIntegration?.apiKey
+                    || options?.autoLearnToneSetConfig?.openAIAPIKey
+                    || '',
+                ),
+                model: this.ngFormBuilder.control(
+                    options?.openAIIntegration?.model || 'gpt-5.4-mini',
+                ),
+            }),
+            autoLearnToneSetConfig: this.ngFormBuilder.group({
+                aToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.aToneMinDuration ?? 0.5, [Validators.min(0.1)]),
+                aToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.aToneMaxDuration ?? 0.9, [Validators.min(0.1)]),
+                bToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMinDuration ?? 1.5, [Validators.min(0.1)]),
+                bToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMaxDuration ?? 2.5, [Validators.min(0.1)]),
+                longToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.longToneMinDuration ?? 6, [Validators.min(1)]),
+                longToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.longToneMaxDuration ?? 0, [Validators.min(0)]),
+                callsRequired: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.callsRequired ?? 3, [Validators.min(2)]),
+                frequencyToleranceHz: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.frequencyToleranceHz ?? 10, [Validators.min(1)]),
+            }),
         });
     }
 
@@ -1430,6 +1508,18 @@ export class RdioScannerAdminService implements OnDestroy {
             autoPopulateAlertsEnabled: this.ngFormBuilder.control(system?.autoPopulateAlertsEnabled !== false),
             autoPopulateUnits: this.ngFormBuilder.control(system?.autoPopulateUnits === true),
             transcriptionPrompt: this.ngFormBuilder.control(system?.transcriptionPrompt || ''),
+            autoLearnToneSets: this.ngFormBuilder.control(system?.autoLearnToneSets || false),
+            autoLearnToneSetsTagIds: this.ngFormBuilder.control(system?.autoLearnToneSetsTagIds || []),
+            autoLearnToneSetsAutoOffDays: this.ngFormBuilder.control(system?.autoLearnToneSetsAutoOffDays || 0, [Validators.min(0)]),
+            autoLearnToneSetsExpiresAt: this.ngFormBuilder.control(system?.autoLearnToneSetsExpiresAt || 0),
+            bulkToneDetectionEnabled: this.ngFormBuilder.control(system?.bulkToneDetectionEnabled || false),
+            bulkToneDetectionTagIds: this.ngFormBuilder.control(system?.bulkToneDetectionTagIds || []),
+            bulkToneDetectionAutoOffDays: this.ngFormBuilder.control(system?.bulkToneDetectionAutoOffDays || 0, [Validators.min(0)]),
+            bulkToneDetectionExpiresAt: this.ngFormBuilder.control(system?.bulkToneDetectionExpiresAt || 0),
+            autoLearnUnitAliases: this.ngFormBuilder.control(system?.autoLearnUnitAliases || false),
+            autoLearnUnitAliasesTagIds: this.ngFormBuilder.control(system?.autoLearnUnitAliasesTagIds || []),
+            autoLearnUnitAliasesAutoOffDays: this.ngFormBuilder.control(system?.autoLearnUnitAliasesAutoOffDays || 0, [Validators.min(0)]),
+            autoLearnUnitAliasesExpiresAt: this.ngFormBuilder.control(system?.autoLearnUnitAliasesExpiresAt || 0),
         });
     }
 
@@ -1497,6 +1587,9 @@ export class RdioScannerAdminService implements OnDestroy {
             linkedVoiceMinDurationSeconds: this.ngFormBuilder.control(talkgroup?.linkedVoiceMinDurationSeconds || 0, Validators.min(0)),
             alertsEnabled: this.ngFormBuilder.control(talkgroup?.alertsEnabled !== false), // Default to true
             transcriptionPrompt: this.ngFormBuilder.control(talkgroup?.transcriptionPrompt || ''),
+            autoLearnToneSets: this.ngFormBuilder.control(talkgroup?.autoLearnToneSets || false),
+            autoLearnUnitAliases: this.ngFormBuilder.control(talkgroup?.autoLearnUnitAliases || false),
+            alertingTalkgroup: this.ngFormBuilder.control(talkgroup?.alertingTalkgroup || false),
         });
     }
 

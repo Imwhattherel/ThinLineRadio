@@ -50,7 +50,7 @@ interface MergedAlert {
     systemLabel?: string;
     talkgroupIds: number[];
     talkgroupLabels: string[];
-    alertType: 'tone' | 'keyword' | 'tone+keyword';
+    alertType: 'tone' | 'keyword' | 'tone+keyword' | 'transcript';
     toneDetected: boolean;
     matchedToneSetNames: string[];
     keywordsMatched: string[];
@@ -2049,6 +2049,8 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
                 return 'KEYWORD';
             case 'tone+keyword':
                 return 'TONE & KEYWORD';
+            case 'transcript':
+                return 'TRANSCRIPT';
             default:
                 return 'ALERT';
         }

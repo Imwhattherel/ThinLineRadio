@@ -90,27 +90,98 @@
         </div>
 
         <div class="settings-field settings-field--toggle">
-            <label class="field-label">Auto Populate</label>
-            <mat-slide-toggle color="primary" formControlName="autoPopulate"></mat-slide-toggle>
-            <span class="mat-caption toggle-hint">Auto-create unconfigured talkgroups</span>
+            <div class="toggle-row">
+                <label class="field-label">Auto Populate</label>
+                <mat-slide-toggle color="primary" formControlName="autoPopulate"></mat-slide-toggle>
+            </div>
+            <span class="field-hint">Auto-create unconfigured talkgroups</span>
         </div>
 
         <div *ngIf="form.get('autoPopulate')?.value" class="settings-field settings-field--toggle">
-            <label class="field-label">Autopop alerts</label>
-            <mat-slide-toggle color="primary" formControlName="autoPopulateAlertsEnabled"></mat-slide-toggle>
-            <span class="mat-caption toggle-hint">New auto-populated talkgroups start with alerts enabled (you can still change each talkgroup later)</span>
+            <div class="toggle-row">
+                <label class="field-label">Autopop alerts</label>
+                <mat-slide-toggle color="primary" formControlName="autoPopulateAlertsEnabled"></mat-slide-toggle>
+            </div>
+            <span class="field-hint">New auto-populated talkgroups start with alerts enabled (you can still change each talkgroup later)</span>
         </div>
 
         <div class="settings-field settings-field--toggle">
-            <label class="field-label">Auto-populate units</label>
-            <mat-slide-toggle color="primary" formControlName="autoPopulateUnits"></mat-slide-toggle>
-            <span class="mat-caption toggle-hint">Add unit ID and label from heard traffic to this system's unit list. Independent of talkgroup auto-populate.</span>
+            <div class="toggle-row">
+                <label class="field-label">Auto-populate units</label>
+                <mat-slide-toggle color="primary" formControlName="autoPopulateUnits"></mat-slide-toggle>
+            </div>
+            <span class="field-hint">Add unit ID and label from heard traffic to this system's unit list. Independent of talkgroup auto-populate.</span>
         </div>
 
         <div class="settings-field settings-field--toggle">
-            <label class="field-label">Alerts Enabled</label>
-            <mat-slide-toggle color="primary" formControlName="alertsEnabled"></mat-slide-toggle>
-            <span class="mat-caption toggle-hint">Allow alerts &amp; transcription for this system</span>
+            <div class="toggle-row">
+                <label class="field-label">Alerts Enabled</label>
+                <mat-slide-toggle color="primary" formControlName="alertsEnabled"></mat-slide-toggle>
+            </div>
+            <span class="field-hint">Allow alerts &amp; transcription for this system</span>
+        </div>
+
+        <div class="settings-field settings-field--wide" style="padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <label class="field-label">Auto-learn tone sets</label>
+            <div class="toggle-row" style="margin-bottom: 8px;">
+                <span class="field-hint" style="flex: 1;">Discover paging tone patterns from live traffic and auto-add tone sets (or email admins for stacked tones). Pick tags for the channels where tones are heard — typically <strong>Fire dispatch / paging</strong> tags, not every fireground ops channel. Applied when you save config.</span>
+                <mat-slide-toggle color="primary" formControlName="autoLearnToneSets"></mat-slide-toggle>
+            </div>
+            <ng-container *ngIf="form.get('autoLearnToneSets')?.value">
+                <mat-form-field appearance="outline" class="compact-field" style="width: 100%;">
+                    <mat-label>Tags to enable</mat-label>
+                    <mat-select formControlName="autoLearnToneSetsTagIds" multiple>
+                        <mat-option *ngFor="let tag of tagsUsedInSystem" [value]="tag.id">{{ tag.label }}</mat-option>
+                    </mat-select>
+                    <mat-hint>{{ toneLearnTargetCount }} talkgroup(s) match — you can still override individual talkgroups</mat-hint>
+                </mat-form-field>
+                <mat-form-field appearance="outline" class="compact-field" style="width: 220px; margin-top: 8px;">
+                    <mat-label>Auto-off after (days)</mat-label>
+                    <input type="number" min="0" step="1" matInput formControlName="autoLearnToneSetsAutoOffDays" placeholder="0 = never">
+                    <mat-hint>0 = run until you turn it off manually</mat-hint>
+                </mat-form-field>
+                <span class="field-hint" *ngIf="toneLearnExpiresLabel" style="display: block; margin-top: 8px;">{{ toneLearnExpiresLabel }}</span>
+            </ng-container>
+        </div>
+
+        <div class="settings-field settings-field--wide" style="padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <label class="field-label">Auto-learn unit aliases</label>
+            <div class="toggle-row" style="margin-bottom: 8px;">
+                <span class="field-hint" style="flex: 1;">Learn radio unit ID → label mappings (e.g. 789001 = Rescue 41). Select tags for channels where units transmit (dispatch, fireground, EMS). Same radio alias on every call auto-adds without OpenAI; otherwise OpenAI names the unit from voice.</span>
+                <mat-slide-toggle color="primary" formControlName="autoLearnUnitAliases"></mat-slide-toggle>
+            </div>
+            <ng-container *ngIf="form.get('autoLearnUnitAliases')?.value">
+                <mat-form-field appearance="outline" class="compact-field" style="width: 100%;">
+                    <mat-label>Tags to enable</mat-label>
+                    <mat-select formControlName="autoLearnUnitAliasesTagIds" multiple>
+                        <mat-option *ngFor="let tag of tagsUsedInSystem" [value]="tag.id">{{ tag.label }}</mat-option>
+                    </mat-select>
+                    <mat-hint>{{ unitLearnTargetCount }} talkgroup(s) match — you can still override individual talkgroups</mat-hint>
+                </mat-form-field>
+                <mat-form-field appearance="outline" class="compact-field" style="width: 220px; margin-top: 8px;">
+                    <mat-label>Auto-off after (days)</mat-label>
+                    <input type="number" min="0" step="1" matInput formControlName="autoLearnUnitAliasesAutoOffDays" placeholder="0 = never">
+                    <mat-hint>0 = run until you turn it off manually</mat-hint>
+                </mat-form-field>
+                <span class="field-hint" *ngIf="unitAliasExpiresLabel" style="display: block; margin-top: 8px;">{{ unitAliasExpiresLabel }}</span>
+            </ng-container>
+        </div>
+
+        <div class="settings-field settings-field--wide" style="padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <label class="field-label">Bulk tone detection</label>
+            <div class="toggle-row" style="margin-bottom: 8px;">
+                <span class="field-hint" style="flex: 1;"><strong>Production matching</strong> — turn on tone detection where tone sets are already configured (alerts, keyword gates, etc.). Different from auto-learn above, which <em>discovers</em> new tone sets. Pick Fire/EMS tags; skip PD. Stays on until you turn it off. Applied when you save config.</span>
+                <mat-slide-toggle color="primary" formControlName="bulkToneDetectionEnabled"></mat-slide-toggle>
+            </div>
+            <ng-container *ngIf="form.get('bulkToneDetectionEnabled')?.value">
+                <mat-form-field appearance="outline" class="compact-field" style="width: 100%;">
+                    <mat-label>Tags to enable</mat-label>
+                    <mat-select formControlName="bulkToneDetectionTagIds" multiple>
+                        <mat-option *ngFor="let tag of tagsUsedInSystem" [value]="tag.id">{{ tag.label }}</mat-option>
+                    </mat-select>
+                    <mat-hint>{{ bulkToneTargetCount }} talkgroup(s) on this system match the selected tags</mat-hint>
+                </mat-form-field>
+            </ng-container>
         </div>
 
         <div *ngIf="!form.get('alertsEnabled')?.value" class="settings-field settings-field--wide">
@@ -132,12 +203,12 @@
 
         <div class="settings-field settings-field--wide">
             <label class="field-label">Transcription Prompt</label>
-            <mat-form-field appearance="outline" class="compact-field">
+            <mat-form-field appearance="outline" class="compact-field compact-field--hint-outside">
                 <textarea matInput formControlName="transcriptionPrompt"
                           placeholder="e.g. Engine 4 Ladder 2 Station 12 Code 3 dispatch"
                           rows="2"></textarea>
-                <mat-hint>Overrides the global prompt for all talkgroups in this system. Leave blank to use the global prompt. Individual talkgroups can further override this.</mat-hint>
             </mat-form-field>
+            <span class="field-hint">Overrides the global prompt for all talkgroups in this system. Leave blank to use the global prompt. Individual talkgroups can further override this.</span>
         </div>
 
     </div>

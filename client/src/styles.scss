@@ -829,6 +829,12 @@ body {
 	height: 100%;
 }
 
+/* Scanner shell is viewport-locked; default browser canvas is white and
+   bleeds through any gap in the height chain or Material tab viewport. */
+body:has(rdio-scanner) {
+	background: var(--tlr-chassis-stop-1, #0c0e12);
+}
+
 /* Mask admin API key / secret fields without using type="password"
    so Chrome's password-save detector never triggers outside the login form */
 input.masked-pw {

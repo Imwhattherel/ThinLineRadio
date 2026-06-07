@@ -81,6 +81,12 @@ func (scheduler *Scheduler) run() {
 
 	// Prune authMutexes entries for users that no longer exist
 	go scheduler.Controller.pruneAuthMutexes()
+
+	// Disable unit alias auto-learn when the rollout timer elapses
+	go scheduler.Controller.expireAutoLearnUnitAliases()
+
+	// Disable tone auto-learn when the rollout timer elapses
+	go scheduler.Controller.expireAutoLearnToneSets()
 }
 
 func (scheduler *Scheduler) Start() error {

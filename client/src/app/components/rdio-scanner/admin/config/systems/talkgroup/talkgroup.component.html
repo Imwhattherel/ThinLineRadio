@@ -204,6 +204,33 @@
             <mat-slide-toggle color="primary" formControlName="alertsEnabled"></mat-slide-toggle>
         </div>
     </div>
+    <div class="row">
+        <p>
+            <span class="mat-body">Auto-learn tone sets</span><br>
+            <span class="mat-caption">When enabled (system master toggle on, and this talkgroup is in the system tag rollout or toggled here), observe A+B or long-tone paging on this channel. Single patterns auto-add after enough calls; stacked tones email admins. Usually enabled via system tag selection on dispatch/paging channels.</span>
+        </p>
+        <div>
+            <mat-slide-toggle color="primary" formControlName="autoLearnToneSets"></mat-slide-toggle>
+        </div>
+    </div>
+    <div class="row">
+        <p>
+            <span class="mat-body">Auto-learn unit aliases</span><br>
+            <span class="mat-caption">When enabled (system master toggle on, and this talkgroup is in the system tag rollout or toggled here), observe radio unit IDs on this channel. Consistent P25 aliases auto-add; otherwise OpenAI suggests a label from voice. Usually enabled via system tag selection.</span>
+        </p>
+        <div>
+            <mat-slide-toggle color="primary" formControlName="autoLearnUnitAliases"></mat-slide-toggle>
+        </div>
+    </div>
+    <div class="row">
+        <p>
+            <span class="mat-body">Alerting talkgroup</span><br>
+            <span class="mat-caption">Always transcribe and send transcript alerts on voiced calls. No tone detection or keyword matching required. Users only need alerts enabled for this talkgroup (tone/keyword toggles not required).</span>
+        </p>
+        <div>
+            <mat-slide-toggle color="primary" formControlName="alertingTalkgroup"></mat-slide-toggle>
+        </div>
+    </div>
     <div class="row" *ngIf="!form.get('alertsEnabled')?.value">
         <p>
             <mat-card class="warn-card" style="width:100%">

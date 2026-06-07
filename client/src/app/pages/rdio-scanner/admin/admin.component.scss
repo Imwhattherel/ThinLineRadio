@@ -46,12 +46,11 @@
         gap: 14px;
     }
 
-    .header-radio-icon {
-        color: #cc0000;
-        font-size: 40px;
-        width: 40px;
-        height: 40px;
-        text-shadow: 0 0 12px rgba(204, 0, 0, 0.5);
+    .header-logo {
+        display: block;
+        height: 44px;
+        width: auto;
+        object-fit: contain;
     }
 
     .header-brand {
@@ -204,10 +203,8 @@
 
         .header-action-btn mat-icon { margin-right: 0; }
 
-        .header-radio-icon {
-            font-size: 28px;
-            width: 28px;
-            height: 28px;
+        .header-logo {
+            height: 32px;
         }
 
         .brand-name {

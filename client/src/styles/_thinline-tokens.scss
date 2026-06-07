@@ -34,6 +34,8 @@
     /* ── Surfaces & text (dark, default) ─────────────────────────────── */
     --tlr-bg: #000000;
     --tlr-surface: #2a2a2a;
+    /* Console tab board + Material tab-body scroll viewport (mat light theme defaults to white). */
+    --tlr-board-surface: #14171b;
     --tlr-text: #ffffff;
     --tlr-text-secondary: #888888;
 
@@ -94,6 +96,7 @@
 .thinline-skin--light {
     --tlr-bg: #c0c0c0;
     --tlr-surface: #b0b0b0;
+    --tlr-board-surface: #d9e0e6;
     --tlr-text: #2c2c2c;
     --tlr-text-secondary: #666666;
 

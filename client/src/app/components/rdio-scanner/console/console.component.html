@@ -216,7 +216,7 @@
                         Current
                     </span>
                 </ng-template>
-                <div class="tab-panel current-panel">
+                <div class="tab-panel tab-panel--fill current-panel">
                     <div class="panel-title">Call history (last hour)</div>
                     <div class="board-split">
                         <div class="board-main">
@@ -334,7 +334,7 @@
             <!-- ─── ALERTS ─── -->
             <mat-tab label="Alerts" *ngIf="isTranscriptionEnabled">
                 <ng-template matTabContent>
-                    <div class="tab-panel embed-panel">
+                    <div class="tab-panel tab-panel--fill embed-panel">
                         <rdio-scanner-alerts panelMode="alertsAndPreferences"></rdio-scanner-alerts>
                     </div>
                 </ng-template>
@@ -343,7 +343,7 @@
             <!-- ─── TRANSCRIPTS ─── -->
             <mat-tab label="Transcripts" *ngIf="isTranscriptionEnabled">
                 <ng-template matTabContent>
-                    <div class="tab-panel embed-panel">
+                    <div class="tab-panel tab-panel--fill embed-panel">
                         <rdio-scanner-alerts panelMode="transcripts"></rdio-scanner-alerts>
                     </div>
                 </ng-template>
@@ -352,7 +352,7 @@
             <!-- ─── STATS ─── -->
             <mat-tab label="Stats" *ngIf="isTranscriptionEnabled">
                 <ng-template matTabContent>
-                    <div class="tab-panel embed-panel">
+                    <div class="tab-panel tab-panel--fill embed-panel">
                         <rdio-scanner-alerts panelMode="stats"></rdio-scanner-alerts>
                     </div>
                 </ng-template>
@@ -361,7 +361,7 @@
             <!-- ─── SETTINGS ─── -->
             <mat-tab label="Settings">
                 <ng-template matTabContent>
-                    <div class="tab-panel embed-panel">
+                    <div class="tab-panel tab-panel--fill embed-panel">
                         <rdio-scanner-settings></rdio-scanner-settings>
                     </div>
                 </ng-template>

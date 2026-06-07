@@ -588,6 +588,11 @@ func (controller *Controller) IngestCall(call *Call) {
 		}
 	}
 
+	// Unit alias auto-learn: record radio unitRef observations (transcript filled in later).
+	if unitLearnEnabled(call) && callHasUnitRefs(call) {
+		go controller.processUnitAutoLearn(call, "")
+	}
+
 	if populated {
 		if err = controller.Systems.Write(controller.Database); err != nil {
 			logError(err)
@@ -2468,6 +2473,11 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 	// Do this check asynchronously to avoid blocking the worker
 	minDuration := controller.Options.TranscriptionConfig.MinCallDuration
 	toneDetectionEnabled := call.Talkgroup != nil && call.Talkgroup.ToneDetectionEnabled
+	alertingTalkgroup := call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup
+	autoLearnToneSets := call.System != nil && call.Talkgroup != nil &&
+		call.System.AutoLearnToneSets && call.Talkgroup.AutoLearnToneSets &&
+		call.System.AlertsEnabled && call.Talkgroup.AlertsEnabled
+	autoLearnUnitAliases := unitLearnEnabled(call) && callHasUnitRefs(call)
 
 	if minDuration > 0 {
 		// Check duration in a separate goroutine to avoid blocking
@@ -2511,6 +2521,12 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 				// the voice dispatch that follows a tone page on a separate call
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on tone-enabled talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
 				// Continue to alert checks
+			} else if alertingTalkgroup && audioDuration < minDuration {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on alerting talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
+			} else if autoLearnToneSets && audioDuration < minDuration {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on auto-learn talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
+			} else if autoLearnUnitAliases && audioDuration < minDuration {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on unit alias auto-learn talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
 			} else if audioDuration < minDuration {
 				// Normal check for non-tone-enabled talkgroups or calls without tones
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d: duration %.1fs is less than minimum %.1fs", call.Id, audioDuration, minDuration))
@@ -2540,20 +2556,10 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d has sufficient remaining audio after tone removal (%.1fs of %.1fs total, %.1fs tones)", call.Id, remainingDuration, audioDuration, toneDuration))
 			}
 
-			// Duration check passed, now check if any user has alerts enabled
-			hasToneAlerts := controller.hasUsersWithToneAlerts(call.System.Id, call.Talkgroup.Id)
-			hasKeywordAlerts := controller.hasUsersWithKeywordAlerts(call.System.Id, call.Talkgroup.Id)
-
-			localReasons := []string{}
-			if hasToneAlerts {
-				localReasons = append(localReasons, "tone_alerts")
-			}
-			if hasKeywordAlerts {
-				localReasons = append(localReasons, "keyword_alerts")
-			}
-
+			// Duration check passed, now check transcription reasons
+			localReasons := controller.transcriptionReasonsForCall(call)
 			if len(localReasons) == 0 {
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no users with alerts enabled for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
 				return
 			}
 
@@ -2563,23 +2569,12 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 		return // Exit early, goroutine will handle queueing
 	}
 
-	// Reason 2: Any user has tone alerts OR keyword alerts enabled for this talkgroup
+	// Reason 2: alerting talkgroup, tone alerts, or keyword alerts
 	if !needsTranscription {
-		hasToneAlerts := controller.hasUsersWithToneAlerts(call.System.Id, call.Talkgroup.Id)
-		hasKeywordAlerts := controller.hasUsersWithKeywordAlerts(call.System.Id, call.Talkgroup.Id)
-
-		if hasToneAlerts {
-			needsTranscription = true
-			reasons = append(reasons, "tone_alerts")
-		}
-
-		if hasKeywordAlerts {
-			needsTranscription = true
-			reasons = append(reasons, "keyword_alerts")
-		}
-
+		reasons = controller.transcriptionReasonsForCall(call)
+		needsTranscription = len(reasons) > 0
 		if !needsTranscription {
-			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no users with alerts enabled for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
+			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
 		}
 	}
 
@@ -2616,6 +2611,42 @@ func (controller *Controller) queueTranscriptionJobIfNeeded(call *Call, priority
 	} else {
 		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("transcription queue became unavailable while processing call %d", call.Id))
 	}
+}
+
+func (controller *Controller) transcriptionReasonsForCall(call *Call) []string {
+	if call == nil || call.System == nil || call.Talkgroup == nil {
+		return nil
+	}
+	reasons := []string{}
+	if call.System.AutoLearnToneSets && call.Talkgroup.AutoLearnToneSets &&
+		call.System.AlertsEnabled && call.Talkgroup.AlertsEnabled {
+		reasons = append(reasons, "auto_learn_tone_sets")
+	}
+	if unitLearnEnabled(call) && callHasUnitRefs(call) {
+		reasons = append(reasons, "auto_learn_unit_aliases")
+	}
+	if call.Talkgroup.AlertingTalkgroup && controller.hasUsersWithAlertsEnabled(call.System.Id, call.Talkgroup.Id) {
+		reasons = append(reasons, "alerting_talkgroup")
+	}
+	if controller.hasUsersWithToneAlerts(call.System.Id, call.Talkgroup.Id) {
+		reasons = append(reasons, "tone_alerts")
+	}
+	if controller.hasUsersWithKeywordAlerts(call.System.Id, call.Talkgroup.Id) {
+		reasons = append(reasons, "keyword_alerts")
+	}
+	return reasons
+}
+
+// hasUsersWithAlertsEnabled checks if any user has alertEnabled for this talkgroup.
+func (controller *Controller) hasUsersWithAlertsEnabled(systemId uint64, talkgroupId uint64) bool {
+	userIds := controller.PreferencesCache.GetUsersForTalkgroup(systemId, talkgroupId)
+	for _, userId := range userIds {
+		pref := controller.PreferencesCache.GetPreference(userId, systemId, talkgroupId)
+		if pref != nil && pref.AlertEnabled {
+			return true
+		}
+	}
+	return false
 }
 
 // hasUsersWithToneAlerts checks if any user has tone alerts enabled for this talkgroup

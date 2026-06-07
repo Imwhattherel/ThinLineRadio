@@ -554,7 +554,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #14171b;
+  background: var(--tlr-board-surface, #14171b);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   overflow: hidden;
@@ -614,6 +614,15 @@
     }
 
     .mat-mdc-tab-body-wrapper { flex: 1 1 0%; min-height: 0; overflow: hidden; }
+
+    /* Light Material theme paints tab bodies white; override the full stack
+       so the fitted scroll viewport matches the board chrome. */
+    .mat-mdc-tab-body,
+    .mat-mdc-tab-body.mat-mdc-tab-body-active,
+    .mat-mdc-tab-body-content {
+      background: var(--tlr-board-surface, #14171b);
+    }
+
     .mat-mdc-tab-body.mat-mdc-tab-body-active { flex: 1 1 0%; min-height: 0; }
     .mat-mdc-tab-body-content {
       box-sizing: border-box;

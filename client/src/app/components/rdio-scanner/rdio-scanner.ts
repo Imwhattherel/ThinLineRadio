@@ -106,7 +106,7 @@ export interface RdioScannerAlert {
     callId: number;
     systemId: number;
     talkgroupId: number;
-    alertType: 'tone' | 'keyword' | 'tone+keyword';
+    alertType: 'tone' | 'keyword' | 'tone+keyword' | 'transcript';
     toneDetected: boolean;
     keywordsMatched?: string; // JSON array
     transcriptSnippet?: string;

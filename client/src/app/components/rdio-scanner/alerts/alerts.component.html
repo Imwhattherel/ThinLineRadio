@@ -66,7 +66,8 @@
                  class="alert-item alert-item-embed"
                  [class.tone]="alert.alertType === 'tone'"
                  [class.keyword]="alert.alertType === 'keyword'"
-                 [class.tone-keyword]="alert.alertType === 'tone+keyword'">
+                 [class.tone-keyword]="alert.alertType === 'tone+keyword'"
+                 [class.transcript]="alert.alertType === 'transcript'">
                 <div class="alert-header">
                     <div class="alert-header-left">
                         <span class="alert-type-badge">{{ getAlertTypeLabel(alert) }}</span>
@@ -135,7 +136,8 @@
                     <div *ngFor="let alert of group.alerts; trackBy: trackByAlertId" 
                          class="alert-item" 
                          [class.tone]="alert.alertType === 'tone'"
-                         [class.tone-keyword]="alert.alertType === 'tone+keyword'">
+                         [class.tone-keyword]="alert.alertType === 'tone+keyword'"
+                         [class.transcript]="alert.alertType === 'transcript'">
                         
                         <div class="alert-header">
                             <div class="alert-header-left">
@@ -246,6 +248,11 @@
                 <span class="contrib-value">{{ collectorStats.submissions }} submissions · {{ collectorStats.formatted }}</span>
                 <span class="contrib-detail">{{ collectorStats.hours }}h {{ collectorStats.minutes }}m {{ collectorStats.seconds }}s</span>
             </div>
+        </div>
+
+        <div class="transcripts-stale-banner" *ngIf="transcriptsStale">
+            <span>New transcripts are available.</span>
+            <button type="button" class="btn-stale-refresh" (click)="refreshStaleTranscripts()">Refresh list</button>
         </div>
 
         <!-- Filter Controls -->

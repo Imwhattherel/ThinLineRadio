@@ -305,6 +305,7 @@ func (admin *Admin) approveTranscriptReview(w http.ResponseWriter, r *http.Reque
 		json.NewEncoder(w).Encode(map[string]string{"error": "reviewed transcript is empty"})
 		return
 	}
+	reviewedUpper := strings.ToUpper(reviewed)
 
 	if call.TrainingReviewStatus == "submitted" {
 		w.WriteHeader(http.StatusConflict)
@@ -344,7 +345,7 @@ func (admin *Admin) approveTranscriptReview(w http.ResponseWriter, r *http.Reque
 		"systemLabel":        systemLabel,
 		"talkgroupLabel":     talkgroupLabel,
 		"originalTranscript": call.Transcript,
-		"reviewedTranscript": reviewed,
+		"reviewedTranscript": reviewedUpper,
 		"reviewer":           reviewer,
 		"reviewedAt":         time.Now().UTC().Format(time.RFC3339),
 	}
@@ -357,12 +358,19 @@ func (admin *Admin) approveTranscriptReview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	esc := escapeQuotes(reviewed)
-	query := fmt.Sprintf(`UPDATE "calls" SET "reviewedTranscript" = '%s', "trainingReviewStatus" = 'submitted' WHERE "callId" = %d`, esc, callId)
+	escTranscript := escapeQuotes(reviewedUpper)
+	escReviewed := escapeQuotes(reviewedUpper)
+	query := fmt.Sprintf(`UPDATE "calls" SET "transcript" = '%s', "reviewedTranscript" = '%s', "trainingReviewStatus" = 'submitted' WHERE "callId" = %d`, escTranscript, escReviewed, callId)
 	if _, err := admin.Controller.Database.Sql.Exec(query); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "submitted but failed to update local status"})
 		return
+	}
+
+	if updated, err := admin.Controller.Calls.GetCall(callId); err == nil && updated != nil {
+		updated.Transcript = reviewedUpper
+		updated.ReviewedTranscript = reviewedUpper
+		updated.TrainingReviewStatus = "submitted"
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"message": "approved and sent to transcript collector"})

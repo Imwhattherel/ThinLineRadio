@@ -117,6 +117,7 @@
     border-radius: 8px;
     padding: 16px 20px 20px;
     margin-bottom: 24px;
+    overflow: visible;
 
     .section-label {
         display: flex;
@@ -148,17 +149,28 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 
     &--wide {
-        grid-column: span 2;
+        grid-column: 1 / -1;
     }
 
     &--toggle {
-        flex-direction: row;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
         padding: 8px 0;
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .field-label {
+            flex: 1;
+            min-width: 0;
+        }
     }
 }
 
@@ -170,16 +182,32 @@
     color: #888;
 }
 
-.toggle-hint {
+.field-hint {
+    display: block;
+    font-size: 12px;
+    line-height: 1.45;
     color: #666;
-    margin-left: 4px;
+    max-width: 100%;
 }
 
 .compact-field {
     width: 100%;
 
+    &.compact-field--hint-outside {
+        ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+            display: none;
+        }
+    }
+
     ::ng-deep .mat-mdc-form-field-subscript-wrapper {
         margin-top: 2px;
+        overflow: visible;
+        position: static;
+    }
+
+    ::ng-deep .mat-mdc-form-field-hint {
+        white-space: normal;
+        line-height: 1.45;
     }
 }
 
@@ -532,7 +560,7 @@
     }
 
     .settings-field--wide {
-        grid-column: span 1;
+        grid-column: 1 / -1;
     }
 
     .talkgroups-table {

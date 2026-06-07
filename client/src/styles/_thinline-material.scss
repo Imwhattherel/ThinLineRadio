@@ -6,6 +6,17 @@
  * `.thinline-skin` so admin / legacy views are unaffected.
  */
 
+/* mat-tab bodies use the light-theme canvas; with `height: 100%` on
+   `.mat-mdc-tab-body-content` the white shows below short tab content
+   and flashes briefly during tab switches. */
+.thinline-skin {
+    .mat-mdc-tab-body,
+    .mat-mdc-tab-body-active,
+    .mat-mdc-tab-body-content {
+        background: var(--tlr-board-surface) !important;
+    }
+}
+
 .thinline-skin rdio-scanner-alerts {
     .alerts-list .mat-expansion-panel.alert-group-panel {
         background: var(--tlr-lcd-gradient) !important;

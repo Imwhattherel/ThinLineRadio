@@ -26,6 +26,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RequestAPIKeyDialogComponent } from './request-api-key-dialog.component';
 import { RecoverAPIKeyDialogComponent } from './recover-api-key-dialog.component';
 import { LocationDataService } from 'src/app/services/location-data.service';
+import { OPENAI_CHAT_MODEL_OPTIONS, OpenAIChatModelOption } from '../../admin.service';
 
 @Component({
     selector: 'rdio-scanner-admin-options',
@@ -60,6 +61,12 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     centralConnectionStatus: 'success' | 'error' | null = null;
     centralConnectionMessage: string = '';
     showExternalAPIKey: boolean = false;
+    readonly openAIChatModels = OPENAI_CHAT_MODEL_OPTIONS;
+
+    get selectedOpenAIModel(): OpenAIChatModelOption | undefined {
+        const id = this.form?.get('openAIIntegration')?.get('model')?.value || 'gpt-5.4-mini';
+        return this.openAIChatModels.find(m => m.id === id) || this.openAIChatModels[0];
+    }
 
     get isCentrallyManaged(): boolean {
         return this.form?.get('centralManagementEnabled')?.value === true;
@@ -1044,13 +1051,4 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         this.form?.get('transcriptionConfig')?.get('assemblyAIWordBoost')?.setValue(terms);
     }
 
-    getHallucinationPatternsDisplay(): string {
-        const patterns = this.form?.get('transcriptionConfig')?.get('hallucinationPatterns')?.value;
-        return Array.isArray(patterns) ? patterns.join('\n') : '';
-    }
-
-    setHallucinationPatterns(value: string): void {
-        const patterns = value.split('\n').map(s => s.trim()).filter(s => s);
-        this.form?.get('transcriptionConfig')?.get('hallucinationPatterns')?.setValue(patterns);
-    }
 }

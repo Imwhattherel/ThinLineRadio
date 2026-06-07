@@ -2780,3 +2780,89 @@ func migrateCallsTrainingReview(db *Database) error {
 	}
 	return nil
 }
+
+// migrateToneSetAutoLearn adds auto-learn tone set support.
+func migrateToneSetAutoLearn(db *Database) error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS "toneSetLearnCandidates" (
+			"candidateId" bigserial NOT NULL PRIMARY KEY,
+			"systemId" bigint NOT NULL,
+			"talkgroupId" bigint NOT NULL,
+			"signatureHash" text NOT NULL,
+			"patternType" text NOT NULL,
+			"toneSetDraft" text NOT NULL DEFAULT '{}',
+			"callRecords" text NOT NULL DEFAULT '[]',
+			"firstSeenAt" bigint NOT NULL DEFAULT 0,
+			"lastSeenAt" bigint NOT NULL DEFAULT 0,
+			"reviewEmailedAt" bigint NOT NULL DEFAULT 0
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "toneSetLearnCandidates_sig_idx" ON "toneSetLearnCandidates" ("systemId", "talkgroupId", "signatureHash")`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnToneSets" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "autoLearnToneSets" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "alertingTalkgroup" boolean NOT NULL DEFAULT false`,
+	}
+	for _, q := range queries {
+		if _, err := db.Sql.Exec(q); err != nil {
+			log.Printf("migrateToneSetAutoLearn note: %v", err)
+		}
+	}
+	return nil
+}
+
+func migrateBulkToneDetection(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "bulkToneDetectionEnabled" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "bulkToneDetectionTagIds" text NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "bulkToneDetectionAutoOffDays" integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "bulkToneDetectionExpiresAt" bigint NOT NULL DEFAULT 0`,
+	}
+	for _, q := range queries {
+		if _, err := db.Sql.Exec(q); err != nil {
+			log.Printf("migrateBulkToneDetection note: %v", err)
+		}
+	}
+	return nil
+}
+
+// migrateUnitAliasAutoLearn adds auto-learn unit alias support.
+func migrateUnitAliasAutoLearn(db *Database) error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS "unitAliasLearnCandidates" (
+			"candidateId" bigserial NOT NULL PRIMARY KEY,
+			"systemId" bigint NOT NULL,
+			"talkgroupId" bigint NOT NULL,
+			"unitRef" bigint NOT NULL,
+			"callRecords" text NOT NULL DEFAULT '[]',
+			"firstSeenAt" bigint NOT NULL DEFAULT 0,
+			"lastSeenAt" bigint NOT NULL DEFAULT 0,
+			"finalizedAt" bigint NOT NULL DEFAULT 0
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "unitAliasLearnCandidates_ref_idx" ON "unitAliasLearnCandidates" ("systemId", "talkgroupId", "unitRef")`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnUnitAliases" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnUnitAliasesAutoOffDays" integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnUnitAliasesExpiresAt" bigint NOT NULL DEFAULT 0`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "autoLearnUnitAliases" boolean NOT NULL DEFAULT false`,
+	}
+	for _, q := range queries {
+		if _, err := db.Sql.Exec(q); err != nil {
+			log.Printf("migrateUnitAliasAutoLearn note: %v", err)
+		}
+	}
+	return nil
+}
+
+// migrateAutoLearnTagRollout adds tag-based rollout for tone and unit alias auto-learn.
+func migrateAutoLearnTagRollout(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnToneSetsTagIds" text NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnToneSetsAutoOffDays" integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnToneSetsExpiresAt" bigint NOT NULL DEFAULT 0`,
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "autoLearnUnitAliasesTagIds" text NOT NULL DEFAULT '[]'`,
+	}
+	for _, q := range queries {
+		if _, err := db.Sql.Exec(q); err != nil {
+			log.Printf("migrateAutoLearnTagRollout note: %v", err)
+		}
+	}
+	return nil
+}

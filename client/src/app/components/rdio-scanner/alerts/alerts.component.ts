@@ -103,6 +103,8 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     filterDateFrom?: string; // YYYY-MM-DD format for date input
     filterDateTo?: string; // YYYY-MM-DD format for date input
     filterSearch: string = '';
+    /** Set when a live alert arrives but we skip auto-refresh to preserve filters / edit state. */
+    transcriptsStale = false;
     availableSystems: Array<{id: number, label: string}> = [];
     availableTalkgroups: Array<{id: number, label: string, systemId: number}> = [];
     
@@ -223,7 +225,7 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
                         this.loadAlerts(false);
                     }
                     if (!this.boardEmbed && (this.panelMode === 'transcripts' || (this.panelMode === 'alertsAndPreferences' && this.activeTab === 'transcripts'))) {
-                        this.loadTranscripts();
+                        this.onTranscriptsMayHaveChanged();
                     }
                     if (this.boardEmbed || this.panelMode === 'alertsAndPreferences') {
                         this.showNotification(event.alert);
@@ -319,6 +321,37 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     
     applyFilters(): void {
         this.transcriptOffset = 0;
+        this.transcriptsStale = false;
+        this.loadTranscripts();
+    }
+
+    hasActiveTranscriptFilters(): boolean {
+        return !!(
+            this.filterSystemId ||
+            this.filterTalkgroupId ||
+            this.filterDateFrom ||
+            this.filterDateTo ||
+            this.filterSearch?.trim()
+        );
+    }
+
+    /** True when a full list reload would disrupt the user's current transcripts view. */
+    private shouldDeferTranscriptRefreshOnAlert(): boolean {
+        return this.hasActiveTranscriptFilters()
+            || this.editingCallId != null
+            || this.transcriptOffset > 0;
+    }
+
+    private onTranscriptsMayHaveChanged(): void {
+        if (this.shouldDeferTranscriptRefreshOnAlert()) {
+            this.transcriptsStale = true;
+            return;
+        }
+        this.loadTranscripts({ silent: true });
+    }
+
+    refreshStaleTranscripts(): void {
+        this.transcriptsStale = false;
         this.loadTranscripts();
     }
 
@@ -430,10 +463,21 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         }
         this.editApproving = true;
         try {
-            const res = await this.reviewService.approve(this.editingCallId, this.editText.trim());
+            const approvedText = this.editText.trim().toUpperCase();
+            const res = await this.reviewService.approve(this.editingCallId, approvedText);
+            const callId = this.editingCallId;
+            const idx = this.transcripts.findIndex((t) => t.callId === callId);
+            if (idx >= 0) {
+                this.transcripts[idx] = {
+                    ...this.transcripts[idx],
+                    transcript: approvedText,
+                    reviewedTranscript: approvedText,
+                    trainingReviewStatus: 'submitted',
+                    transcriptAnnotations: undefined,
+                };
+            }
             this.snackBar.open(res.message || 'Approved & sent to collector', '', { duration: 4000 });
             this.cancelEdit();
-            this.loadTranscripts();
             void this.loadCollectorSettings();
             void this.loadGlobalTrainingProgress();
         } catch (e: any) {
@@ -742,13 +786,16 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         });
     }
 
-    loadTranscripts(): void {
+    loadTranscripts(opts?: { silent?: boolean }): void {
         this.pin = this.rdioScannerService.readPin();
         if (!this.pin) {
             this.transcripts = [];
             return;
         }
-        this.loadingTranscripts = true;
+        if (!opts?.silent) {
+            this.loadingTranscripts = true;
+            this.transcriptsStale = false;
+        }
         
         // Convert date strings (YYYY-MM-DD) to timestamps (start of day for from, end of day for to)
         let dateFrom: number | undefined;
@@ -797,6 +844,8 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
                 return 'Keyword Match';
             case 'tone+keyword':
                 return 'Tone & Keyword';
+            case 'transcript':
+                return 'Transcript';
             default:
                 return 'Alert';
         }

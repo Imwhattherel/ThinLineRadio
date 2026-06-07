@@ -89,6 +89,8 @@ type Options struct {
 	IOSAppStoreURL     string `json:"iosAppStoreUrl"`
 	AndroidPlayStoreURL string `json:"androidPlayStoreUrl"`
 	TranscriptionConfig           TranscriptionConfig `json:"transcriptionConfig"`
+	OpenAIIntegration             OpenAIIntegration   `json:"openAIIntegration"`
+	AutoLearnToneSetConfig        AutoLearnToneSetConfig `json:"autoLearnToneSetConfig"`
 	TranscriptionEnhancement      bool                `json:"transcriptionEnhancement"`
 	TranscriptionFailureThreshold uint                `json:"transcriptionFailureThreshold"`
 	TranscriptParserConfig        TranscriptConfig    `json:"transcriptParserConfig"`
@@ -199,6 +201,14 @@ type TranscriptionConfig struct {
 	// Whisper training export — reviewed transcripts sent to transcript-collector on approve.
 	CollectorURL    string `json:"collectorURL"`
 	CollectorAPIKey string `json:"collectorAPIKey"`
+}
+
+// OpenAIIntegration holds server-wide OpenAI API credentials for TLR features
+// (tone auto-learn naming, unit alias auto-learn, and future integrations). Separate from transcription.
+type OpenAIIntegration struct {
+	APIKey  string `json:"apiKey"`
+	BaseURL string `json:"baseUrl"`
+	Model   string `json:"model"` // chat model for naming (default gpt-5.4-mini)
 }
 
 const (
@@ -971,7 +981,68 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 	}
 
+	if oai, ok := m["openAIIntegration"].(map[string]any); ok {
+		applyOpenAIIntegrationFromMap(&options.OpenAIIntegration, oai)
+	}
+
+	if alc, ok := m["autoLearnToneSetConfig"].(map[string]any); ok {
+		applyAutoLearnToneSetConfigFromMap(&options.AutoLearnToneSetConfig, alc)
+		migrateLegacyOpenAIIntegration(options, alc)
+	}
+
 	return options
+}
+
+func applyOpenAIIntegrationFromMap(cfg *OpenAIIntegration, m map[string]any) {
+	if v, ok := m["apiKey"].(string); ok {
+		cfg.APIKey = v
+	}
+	if v, ok := m["baseUrl"].(string); ok {
+		cfg.BaseURL = v
+	}
+	if v, ok := m["model"].(string); ok {
+		cfg.Model = v
+	}
+}
+
+// migrateLegacyOpenAIIntegration copies OpenAI credentials stored under autoLearnToneSetConfig (older builds).
+func migrateLegacyOpenAIIntegration(options *Options, autoLearn map[string]any) {
+	if options == nil || strings.TrimSpace(options.OpenAIIntegration.APIKey) != "" {
+		return
+	}
+	if v, ok := autoLearn["openAIAPIKey"].(string); ok && strings.TrimSpace(v) != "" {
+		options.OpenAIIntegration.APIKey = v
+	}
+	if v, ok := autoLearn["openAIAPIURL"].(string); ok && strings.TrimSpace(v) != "" {
+		options.OpenAIIntegration.BaseURL = v
+	}
+}
+
+func applyAutoLearnToneSetConfigFromMap(cfg *AutoLearnToneSetConfig, m map[string]any) {
+	if v, ok := m["aToneMinDuration"].(float64); ok {
+		cfg.AToneMinDuration = v
+	}
+	if v, ok := m["aToneMaxDuration"].(float64); ok {
+		cfg.AToneMaxDuration = v
+	}
+	if v, ok := m["bToneMinDuration"].(float64); ok {
+		cfg.BToneMinDuration = v
+	}
+	if v, ok := m["bToneMaxDuration"].(float64); ok {
+		cfg.BToneMaxDuration = v
+	}
+	if v, ok := m["longToneMinDuration"].(float64); ok {
+		cfg.LongToneMinDuration = v
+	}
+	if v, ok := m["longToneMaxDuration"].(float64); ok {
+		cfg.LongToneMaxDuration = v
+	}
+	if v, ok := m["callsRequired"].(float64); ok {
+		cfg.CallsRequired = int(v)
+	}
+	if v, ok := m["frequencyToleranceHz"].(float64); ok {
+		cfg.FrequencyToleranceHz = v
+	}
 }
 
 func (options *Options) Read(db *Database) error {
@@ -1030,6 +1101,7 @@ func (options *Options) Read(db *Database) error {
 	options.ReconnectionEnabled = defaults.options.reconnectionEnabled
 	options.ReconnectionGracePeriod = defaults.options.reconnectionGracePeriod
 	options.ReconnectionMaxBufferSize = defaults.options.reconnectionMaxBufferSize
+	options.AutoLearnToneSetConfig = DefaultAutoLearnToneSetConfig()
 
 	// Initialize Radio Reference credentials with defaults, but they will be overridden by database values
 	options.RadioReferenceEnabled = defaults.options.radioReferenceEnabled
@@ -1473,6 +1545,34 @@ func (options *Options) Read(db *Database) error {
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
 				options.TranscriptionConfig = cfg
 			}
+		case "openAIIntegration":
+			var cfg OpenAIIntegration
+			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
+				options.OpenAIIntegration = cfg
+			}
+		case "autoLearnToneSetConfig":
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(value.String), &raw); err == nil {
+				var cfg AutoLearnToneSetConfig
+				if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
+					options.AutoLearnToneSetConfig = cfg
+				}
+				legacy := map[string]any{}
+				var legacyKey, legacyURL string
+				if b, ok := raw["openAIAPIKey"]; ok {
+					_ = json.Unmarshal(b, &legacyKey)
+					if legacyKey != "" {
+						legacy["openAIAPIKey"] = legacyKey
+					}
+				}
+				if b, ok := raw["openAIAPIURL"]; ok {
+					_ = json.Unmarshal(b, &legacyURL)
+					if legacyURL != "" {
+						legacy["openAIAPIURL"] = legacyURL
+					}
+				}
+				migrateLegacyOpenAIIntegration(options, legacy)
+			}
 		case "transcriptParserConfig":
 			var cfg TranscriptConfig
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
@@ -1887,6 +1987,8 @@ func (options *Options) Write(db *Database) error {
 	set("reconnectionMaxBufferSize", options.ReconnectionMaxBufferSize)
 	// Persist entire transcription config as a single JSON blob
 	set("transcriptionConfig", options.TranscriptionConfig)
+	set("openAIIntegration", options.OpenAIIntegration)
+	set("autoLearnToneSetConfig", options.AutoLearnToneSetConfig)
 	set("transcriptionEnhancement", options.TranscriptionEnhancement)
 	set("transcriptParserConfig", options.TranscriptParserConfig)
 

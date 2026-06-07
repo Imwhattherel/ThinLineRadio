@@ -142,7 +142,8 @@ export class RdioScannerTranscriptReviewComponent implements OnInit, OnDestroy {
             return;
         }
         this.editApproving = true;
-        this.reviewService.approve(this.editingCallId, this.editText.trim())
+        const approvedText = this.editText.trim().toUpperCase();
+        this.reviewService.approve(this.editingCallId, approvedText)
             .then((res) => {
                 this.snackBar.open(res.message || 'Approved & sent', '', { duration: 4000 });
                 this.cancelEdit();

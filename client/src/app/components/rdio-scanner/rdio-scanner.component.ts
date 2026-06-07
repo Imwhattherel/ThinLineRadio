@@ -28,6 +28,7 @@ import { SettingsService } from './settings/settings.service';
 import { RdioScannerNativeComponent } from './native/native.component';
 import { isMobileRestrictedBrowser } from './mobile-browser.util';
 import { RdioScannerSearchComponent } from './search/search.component';
+import { AppFontService } from './app-font.service';
 
 @Component({
     selector: 'rdio-scanner',
@@ -75,6 +76,7 @@ export class RdioScannerComponent implements OnDestroy, OnInit {
         private rdioScannerService: RdioScannerService,
         private settingsService: SettingsService,
         private route: ActivatedRoute,
+        private appFontService: AppFontService,
     ) {
         this.eventSubscription = this.rdioScannerService.event.subscribe((event: RdioScannerEvent) => this.eventHandler(event));
 
@@ -130,6 +132,9 @@ export class RdioScannerComponent implements OnDestroy, OnInit {
     }
 
     ngOnInit(): void {
+        // Re-apply after .scanner-shell exists (APP_INITIALIZER may run before it mounts).
+        this.appFontService.apply(this.appFontService.getCurrentFont());
+
         /*
          * BEGIN OF RED TAPE:
          * 

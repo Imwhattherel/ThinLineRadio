@@ -192,7 +192,7 @@ func (detector *ToneDetector) Detect(audio []byte, audioMime string, toneSets []
 	}
 
 	// Perform FFT analysis to detect tones
-	detectedTones := detector.analyzeFrequencies(samples, sampleRate, toneSets)
+	detectedTones := detector.analyzeFrequencies(samples, sampleRate, toneSets, false)
 
 	// Log tone detection analysis
 	fmt.Printf("tone detection: analyzed %d samples at %d Hz, found %d potential tone detections\n", len(samples), sampleRate, len(detectedTones))
@@ -229,6 +229,62 @@ func (detector *ToneDetector) Detect(audio []byte, audioMime string, toneSets []
 	}
 
 	return sequence, nil
+}
+
+// Discover analyzes audio and returns all sustained tones (matched or not) for auto-learn.
+func (detector *ToneDetector) Discover(audio []byte, audioMime string) ([]Tone, error) {
+	if len(audio) < 1000 {
+		return []Tone{}, nil
+	}
+
+	ffArgs := []string{
+		"-i", "pipe:0",
+		"-ar", "16000",
+		"-ac", "1",
+		"-af", "highpass=f=200,lowpass=f=3000,dynaudnorm",
+		"-f", "wav",
+		"-loglevel", "error",
+		"pipe:1",
+	}
+
+	ffCmd := exec.Command("ffmpeg", ffArgs...)
+	stdin, err := ffCmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %v", err)
+	}
+
+	var wavData bytes.Buffer
+	var ffErr bytes.Buffer
+	ffCmd.Stdout = &wavData
+	ffCmd.Stderr = &ffErr
+
+	if err := ffCmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start ffmpeg: %v", err)
+	}
+
+	go func() {
+		defer stdin.Close()
+		stdin.Write(audio)
+	}()
+
+	if err := ffCmd.Wait(); err != nil {
+		return nil, fmt.Errorf("ffmpeg conversion failed: %v, stderr: %s", err, ffErr.String())
+	}
+
+	if wavData.Len() == 0 {
+		return nil, fmt.Errorf("ffmpeg produced no output")
+	}
+
+	samples, sampleRate, err := detector.parseWAV(wavData.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse WAV: %v", err)
+	}
+
+	if len(samples) < 100 {
+		return []Tone{}, nil
+	}
+
+	return detector.analyzeFrequencies(samples, sampleRate, nil, true), nil
 }
 
 // parseWAV parses WAV file and returns PCM samples and sample rate
@@ -302,7 +358,7 @@ func parabolicInterpolate(yMinus, y0, yPlus float64) float64 {
 // analyzeFrequencies performs FFT analysis to detect sustained tones
 // Enhanced with dynamic noise floor estimation, parabolic interpolation, and force-split detection
 // Techniques inspired by icad_tone_detection (thegreatcodeholio) for improved analog channel detection
-func (detector *ToneDetector) analyzeFrequencies(samples []float64, sampleRate int, toneSets []ToneSet) []Tone {
+func (detector *ToneDetector) analyzeFrequencies(samples []float64, sampleRate int, toneSets []ToneSet, includeUnmatched bool) []Tone {
 	windowSize := 2048     // FFT window size
 	hopSize := 512         // Slide window by this much
 	minToneDuration := 0.6 // Minimum 600ms to be considered a tone
@@ -726,6 +782,14 @@ func (detector *ToneDetector) analyzeFrequencies(samples []float64, sampleRate i
 				EndTime:   md.endTime,
 				Duration:  duration,
 				ToneType:  toneType,
+			})
+		} else if includeUnmatched {
+			tones = append(tones, Tone{
+				Frequency: md.frequency,
+				StartTime: md.startTime,
+				EndTime:   md.endTime,
+				Duration:  duration,
+				ToneType:  "",
 			})
 		} else {
 			// Log what we were looking for vs what was detected

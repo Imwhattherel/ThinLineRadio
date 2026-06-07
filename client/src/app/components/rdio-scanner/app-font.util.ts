@@ -1,7 +1,7 @@
 /*
  * Shared app font list + apply helper.
- * Sets CSS custom properties on :root/body and syncs overlay/skin nodes so
- * nested scopes cannot reset fonts back to the build-time defaults.
+ * User-selected fonts apply only to the public scanner UI (.scanner-shell),
+ * not the admin console.
  */
 
 export interface AppFontOption {
@@ -17,30 +17,41 @@ export const APP_FONTS: AppFontOption[] = [
     { name: 'Audiowide', value: 'Audiowide, cursive', displayName: 'Audiowide (Digital Display)' },
 ];
 
+const SCANNER_FONT_SELECTOR = '.scanner-shell';
+
 function syncFontVars(el: HTMLElement, value: string): void {
     el.style.setProperty('--tlr-font-primary', value);
     el.style.setProperty('--tlr-font-numeric', value);
 }
 
+function clearScannerFont(el: HTMLElement): void {
+    el.style.removeProperty('--tlr-font-primary');
+    el.style.removeProperty('--tlr-font-numeric');
+    el.style.removeProperty('font-family');
+    el.style.removeProperty('font-size');
+    delete el.dataset['appFont'];
+}
+
 export function applyAppFont(fontName: string): void {
     const font = APP_FONTS.find(f => f.name === fontName) ?? APP_FONTS[0];
-    const root = document.documentElement;
-    const body = document.body;
 
-    root.dataset['appFont'] = font.name;
-    syncFontVars(root, font.value);
-    syncFontVars(body, font.value);
-    body.style.fontFamily = font.value;
-
-    document.querySelectorAll('.thinline-skin, .cdk-overlay-container, app-root').forEach((el) => {
+    document.querySelectorAll(SCANNER_FONT_SELECTOR).forEach((el) => {
         if (el instanceof HTMLElement) {
-            syncFontVars(el, font.value);
+            clearScannerFont(el);
         }
     });
 
-    if (fontName === 'Audiowide') {
-        root.style.fontSize = '14.45px';
-    } else {
-        root.style.fontSize = '';
-    }
+    document.querySelectorAll(SCANNER_FONT_SELECTOR).forEach((el) => {
+        if (!(el instanceof HTMLElement)) {
+            return;
+        }
+        el.dataset['appFont'] = font.name;
+        syncFontVars(el, font.value);
+        el.style.fontFamily = font.value;
+        if (fontName === 'Audiowide') {
+            el.style.fontSize = '14.45px';
+        }
+    });
+
+    document.documentElement.dataset['appFont'] = font.name;
 }

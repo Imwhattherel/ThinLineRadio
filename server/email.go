@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,8 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -172,6 +175,338 @@ func buildEmailMessage(fromName, fromEmail, toEmail, subject, htmlBody string) s
 	message.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
 	
 	return message.String()
+}
+
+// EmailAttachment is a binary file attached to an outbound email.
+type EmailAttachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+}
+
+func buildEmailMessageWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody string, attachments []EmailAttachment) string {
+	subject = removeEmojis(subject)
+	htmlBody = removeEmojisFromHTML(htmlBody)
+	domain := extractDomainFromEmail(fromEmail)
+	messageID := generateMessageID(domain)
+	plainText := htmlToPlainText(htmlBody)
+
+	outerBoundary := fmt.Sprintf("mixed_%d", time.Now().UnixNano())
+	altBoundary := fmt.Sprintf("alt_%d", time.Now().UnixNano())
+
+	var message strings.Builder
+	message.WriteString(fmt.Sprintf("From: %s <%s>\r\n", fromName, fromEmail))
+	message.WriteString(fmt.Sprintf("To: %s\r\n", toEmail))
+	message.WriteString(fmt.Sprintf("Reply-To: %s <%s>\r\n", fromName, fromEmail))
+	message.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	message.WriteString(fmt.Sprintf("Message-ID: %s\r\n", messageID))
+	message.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))
+	message.WriteString("X-Mailer: ThinLine Radio Mail Service\r\n")
+	message.WriteString("MIME-Version: 1.0\r\n")
+	message.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n", outerBoundary))
+	message.WriteString("\r\n")
+
+	message.WriteString(fmt.Sprintf("--%s\r\n", outerBoundary))
+	message.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", altBoundary))
+
+	message.WriteString(fmt.Sprintf("--%s\r\n", altBoundary))
+	message.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	message.WriteString("Content-Transfer-Encoding: 7bit\r\n\r\n")
+	message.WriteString(plainText)
+	message.WriteString("\r\n\r\n")
+
+	message.WriteString(fmt.Sprintf("--%s\r\n", altBoundary))
+	message.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	message.WriteString("Content-Transfer-Encoding: 7bit\r\n\r\n")
+	message.WriteString(htmlBody)
+	message.WriteString("\r\n\r\n")
+	message.WriteString(fmt.Sprintf("--%s--\r\n\r\n", altBoundary))
+
+	for _, att := range attachments {
+		if len(att.Data) == 0 {
+			continue
+		}
+		ct := att.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		fn := att.Filename
+		if fn == "" {
+			fn = "attachment.bin"
+		}
+		message.WriteString(fmt.Sprintf("--%s\r\n", outerBoundary))
+		message.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", ct, mime.QEncoding.Encode("utf-8", fn)))
+		message.WriteString("Content-Transfer-Encoding: base64\r\n")
+		message.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", mime.QEncoding.Encode("utf-8", fn)))
+		encoded := base64.StdEncoding.EncodeToString(att.Data)
+		for i := 0; i < len(encoded); i += 76 {
+			end := i + 76
+			if end > len(encoded) {
+				end = len(encoded)
+			}
+			message.WriteString(encoded[i:end])
+			message.WriteString("\r\n")
+		}
+		message.WriteString("\r\n")
+	}
+
+	message.WriteString(fmt.Sprintf("--%s--\r\n", outerBoundary))
+	return message.String()
+}
+
+// SendEmailWithAttachments sends HTML email with file attachments to one recipient.
+func (es *EmailService) SendEmailWithAttachments(toEmail, subject, htmlBody string, attachments []EmailAttachment) error {
+	fromEmail := es.Controller.Options.EmailSmtpFromEmail
+	fromName := es.Controller.Options.EmailSmtpFromName
+	if fromEmail == "" {
+		fromEmail = es.Controller.Options.Email
+	}
+	if fromName == "" {
+		fromName = es.Controller.Options.Branding
+	}
+	if fromName == "" {
+		fromName = "ThinLine Radio"
+	}
+	if fromEmail == "" {
+		return fmt.Errorf("from email is not configured")
+	}
+
+	provider := es.Controller.Options.EmailProvider
+	if provider == "" {
+		provider = "sendgrid"
+	}
+
+	switch strings.ToLower(provider) {
+	case "sendgrid":
+		return es.sendSendGridEmailWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody, attachments)
+	case "mailgun":
+		return es.sendMailgunEmailWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody, attachments)
+	case "smtp":
+		return es.sendSMTPEmailWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody, attachments)
+	default:
+		return fmt.Errorf("unknown email provider: %s", provider)
+	}
+}
+
+func (es *EmailService) sendSMTPEmailWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody string, attachments []EmailAttachment) error {
+	message := buildEmailMessageWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody, attachments)
+	return es.sendSMTPRawMessage(fromEmail, toEmail, message)
+}
+
+func (es *EmailService) sendSMTPRawMessage(fromEmail, toEmail, message string) error {
+	host := es.Controller.Options.EmailSmtpHost
+	port := es.Controller.Options.EmailSmtpPort
+	username := es.Controller.Options.EmailSmtpUsername
+	password := es.Controller.Options.EmailSmtpPassword
+	useTLS := es.Controller.Options.EmailSmtpUseTLS
+	skipVerify := es.Controller.Options.EmailSmtpSkipVerify
+
+	if host == "" {
+		return fmt.Errorf("SMTP host is not configured")
+	}
+	if port == 0 {
+		port = 587
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	var tlsConfig *tls.Config
+	if useTLS {
+		tlsConfig = &tls.Config{ServerName: host, InsecureSkipVerify: skipVerify}
+	}
+
+	if useTLS && port == 465 {
+		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect to SMTP server with TLS: %v", err)
+		}
+		defer conn.Close()
+		client, err := smtp.NewClient(conn, host)
+		if err != nil {
+			return fmt.Errorf("failed to create SMTP client: %v", err)
+		}
+		defer client.Close()
+		if username != "" && password != "" {
+			if err = client.Auth(smtp.PlainAuth("", username, password, host)); err != nil {
+				return fmt.Errorf("SMTP authentication failed: %v", err)
+			}
+		}
+		if err = client.Mail(fromEmail); err != nil {
+			return err
+		}
+		if err = client.Rcpt(toEmail); err != nil {
+			return err
+		}
+		w, err := client.Data()
+		if err != nil {
+			return err
+		}
+		if _, err = w.Write([]byte(message)); err != nil {
+			return err
+		}
+		return w.Close()
+	}
+
+	client, err := smtp.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to SMTP server: %v", err)
+	}
+	defer client.Close()
+	if useTLS {
+		if err = client.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("SMTP STARTTLS failed: %v", err)
+		}
+	}
+	if username != "" && password != "" {
+		if err = client.Auth(smtp.PlainAuth("", username, password, host)); err != nil {
+			return fmt.Errorf("SMTP authentication failed: %v", err)
+		}
+	}
+	if err = client.Mail(fromEmail); err != nil {
+		return err
+	}
+	if err = client.Rcpt(toEmail); err != nil {
+		return err
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err = w.Write([]byte(message)); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func (es *EmailService) sendSendGridEmailWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody string, attachments []EmailAttachment) error {
+	subject = removeEmojis(subject)
+	htmlBody = removeEmojisFromHTML(htmlBody)
+	apiKey := es.Controller.Options.EmailSendGridAPIKey
+	if apiKey == "" {
+		return fmt.Errorf("SendGrid API key is not configured")
+	}
+	plainText := htmlToPlainText(htmlBody)
+
+	sgAttachments := []map[string]string{}
+	for _, att := range attachments {
+		if len(att.Data) == 0 {
+			continue
+		}
+		ct := att.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		fn := att.Filename
+		if fn == "" {
+			fn = "attachment.bin"
+		}
+		sgAttachments = append(sgAttachments, map[string]string{
+			"content":     base64.StdEncoding.EncodeToString(att.Data),
+			"type":        ct,
+			"filename":    fn,
+			"disposition": "attachment",
+		})
+	}
+
+	payload := map[string]interface{}{
+		"personalizations": []map[string]interface{}{
+			{"to": []map[string]string{{"email": toEmail}}, "subject": subject},
+		},
+		"from":     map[string]string{"email": fromEmail, "name": fromName},
+		"reply_to": map[string]string{"email": fromEmail, "name": fromName},
+		"content": []map[string]string{
+			{"type": "text/plain", "value": plainText},
+			{"type": "text/html", "value": htmlBody},
+		},
+	}
+	if len(sgAttachments) > 0 {
+		payload["attachments"] = sgAttachments
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", "https://api.sendgrid.com/v3/mail/send", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("SendGrid API returned status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func (es *EmailService) sendMailgunEmailWithAttachments(fromName, fromEmail, toEmail, subject, htmlBody string, attachments []EmailAttachment) error {
+	subject = removeEmojis(subject)
+	htmlBody = removeEmojisFromHTML(htmlBody)
+	apiKey := es.Controller.Options.EmailMailgunAPIKey
+	domain := es.Controller.Options.EmailMailgunDomain
+	apiBase := es.Controller.Options.EmailMailgunAPIBase
+	if apiKey == "" {
+		return fmt.Errorf("Mailgun API key is not configured")
+	}
+	if domain == "" {
+		return fmt.Errorf("Mailgun domain is not configured")
+	}
+	if apiBase == "" {
+		apiBase = "https://api.mailgun.net"
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	writer.WriteField("from", fmt.Sprintf("%s <%s>", fromName, fromEmail))
+	writer.WriteField("to", toEmail)
+	writer.WriteField("subject", subject)
+	writer.WriteField("text", htmlToPlainText(htmlBody))
+	writer.WriteField("html", htmlBody)
+	for _, att := range attachments {
+		if len(att.Data) == 0 {
+			continue
+		}
+		fn := att.Filename
+		if fn == "" {
+			fn = "attachment.bin"
+		}
+		ct := att.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		part, err := writer.CreateFormFile("attachment", fn)
+		if err != nil {
+			return err
+		}
+		part.Write(att.Data)
+		_ = ct
+	}
+	writer.Close()
+
+	apiURL := fmt.Sprintf("%s/v3/%s/messages", apiBase, domain)
+	req, err := http.NewRequest("POST", apiURL, &body)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth("api", apiKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Mailgun API returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }
 
 // sendSendGridEmail sends an email using the SendGrid API

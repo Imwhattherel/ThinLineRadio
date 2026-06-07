@@ -134,6 +134,48 @@
           </mat-form-field>
         </div>
 
+        <!-- Auto-learn tone sets (duration windows) -->
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+          <p>
+            <span class="mat-body"><strong>Auto-learn tone sets</strong></span><br>
+            <span class="mat-caption">Duration windows and thresholds when system/talkgroup auto-learn is enabled. <strong>Calls required</strong> also applies to unit alias auto-learn. Single tone patterns are auto-added after enough calls; stacked tones (multiple patterns on one voice call) are emailed to system admins for manual review. OpenAI API key and model are configured under <strong>External Integrations</strong> below.</span>
+          </p>
+          <div formGroupName="autoLearnToneSetConfig" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+            <mat-form-field>
+              <mat-label>A-tone min (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="aToneMinDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>A-tone max (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="aToneMaxDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>B-tone min (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="bToneMinDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>B-tone max (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="bToneMaxDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Long tone min (s)</mat-label>
+              <input type="number" min="1" step="0.5" matInput formControlName="longToneMinDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Long tone max (s, 0=none)</mat-label>
+              <input type="number" min="0" step="0.5" matInput formControlName="longToneMaxDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Calls required</mat-label>
+              <input type="number" min="2" step="1" matInput formControlName="callsRequired">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Frequency tolerance (Hz)</mat-label>
+              <input type="number" min="1" step="1" matInput formControlName="frequencyToleranceHz">
+            </mat-form-field>
+          </div>
+        </div>
+
         <!-- No Audio Alerts -->
         <div class="row" style="margin-top: 16px;">
           <p>
@@ -659,12 +701,59 @@
         <span>External Integrations</span>
       </mat-panel-title>
       <mat-panel-description>
-        Radio Reference, relay server, config sync
+        OpenAI, Radio Reference, relay server, config sync
       </mat-panel-description>
     </mat-expansion-panel-header>
 
     <div class="panel-content">
-      
+
+      <!-- OpenAI Integration -->
+      <div id="opt-openai-integration" class="row">
+        <p>
+          <span class="mat-body">OpenAI</span><br>
+          <span class="mat-caption">Server-wide OpenAI API credentials for TLR-powered features (tone auto-learn naming, unit alias auto-learn). Not used for speech-to-text transcription.</span>
+        </p>
+      </div>
+
+      <ng-container formGroupName="openAIIntegration">
+        <div class="row">
+          <p>
+            <span class="mat-body">API Base URL</span><br>
+            <span class="mat-caption">OpenAI API base URL. Use https://api.openai.com for OpenAI cloud.</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <input type="text" matInput formControlName="baseUrl" placeholder="https://api.openai.com" autocomplete="off">
+          </mat-form-field>
+        </div>
+
+        <div class="row">
+          <p>
+            <span class="mat-body">API Key</span><br>
+            <span class="mat-caption">Your OpenAI API key (sk-...).</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <input type="password" class="masked-pw" matInput formControlName="apiKey" placeholder="sk-..." autocomplete="new-password">
+          </mat-form-field>
+        </div>
+
+        <div class="row">
+          <p>
+            <span class="mat-body">Chat model</span><br>
+            <span class="mat-caption">Model used for tone and unit alias naming. Estimates assume ~2.5k input + ~20 output tokens per naming request.</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <mat-select formControlName="model">
+              <mat-option *ngFor="let m of openAIChatModels" [value]="m.id">
+                {{ m.label }}
+              </mat-option>
+            </mat-select>
+            <mat-hint *ngIf="selectedOpenAIModel as sel">
+              ~${{ sel.estPerNamingUSD | number:'1.4-4' }} per naming call · ${{ sel.inputPerM }}/M in · ${{ sel.outputPerM }}/M out
+            </mat-hint>
+          </mat-form-field>
+        </div>
+      </ng-container>
+
       <!-- Radio Reference Integration -->
       <div class="row">
         <p>
@@ -1344,9 +1433,8 @@
             <span class="mat-caption">Phrases that should be removed from transcripts (case-insensitive). Whisper may hallucinate common phrases from tone-only audio. Add one pattern per line. Example: "THE BELL IS INVITED TO SOUND THREE TIMES"</span>
           </p>
           <mat-form-field floatLabel="auto">
-            <textarea matInput 
-                      [value]="getHallucinationPatternsDisplay()"
-                      (input)="setHallucinationPatterns($any($event.target).value)"
+            <textarea matInput
+                      formControlName="hallucinationPatterns"
                       placeholder="Enter patterns to remove, one per line"
                       rows="4"></textarea>
           </mat-form-field>

@@ -579,12 +579,16 @@ export class RdioScannerAdminConfigComponent implements OnDestroy, OnInit {
                 formValue.options.transcriptionConfig.enabled = formValue.options.transcriptionEnabled;
             }
             
-            if (formValue.options.transcriptionConfig?.hallucinationPatterns) {
-                const patternsString = formValue.options.transcriptionConfig.hallucinationPatterns;
-                if (typeof patternsString === 'string') {
-                    formValue.options.transcriptionConfig.hallucinationPatterns = patternsString
+            if (formValue.options.transcriptionConfig) {
+                const rawPatterns = formValue.options.transcriptionConfig.hallucinationPatterns;
+                if (typeof rawPatterns === 'string') {
+                    formValue.options.transcriptionConfig.hallucinationPatterns = rawPatterns
                         .split('\n')
                         .map((line: string) => line.trim())
+                        .filter((line: string) => line.length > 0);
+                } else if (Array.isArray(rawPatterns)) {
+                    formValue.options.transcriptionConfig.hallucinationPatterns = rawPatterns
+                        .map((line: string) => String(line).trim())
                         .filter((line: string) => line.length > 0);
                 }
             }

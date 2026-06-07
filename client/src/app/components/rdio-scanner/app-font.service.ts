@@ -1,5 +1,5 @@
 /*
- * Loads and applies the user's App Font setting app-wide.
+ * Loads and applies the user's App Font setting on the public scanner UI only.
  */
 
 import { Injectable } from '@angular/core';

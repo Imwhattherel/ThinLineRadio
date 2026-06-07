@@ -369,16 +369,17 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 						call.TranscriptionStatus = "completed"
 					}
 
-					// Check for pending tones from previous tone-only calls (from other calls)
-					attachedPending := queue.controller.checkAndAttachPendingTones(call)
+					if call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup {
+						go queue.controller.AlertEngine.TriggerTranscriptAlerts(call)
+					} else {
+						// Check for pending tones from previous tone-only calls (from other calls)
+						attachedPending := queue.controller.checkAndAttachPendingTones(call)
 
-					if attachedPending {
-						// Pending tones from a different call were attached - trigger tone alerts
-						go queue.controller.AlertEngine.TriggerToneAlerts(call)
-					} else if call.HasTones {
-						// This call has its own tones (from this same call or already attached)
-						// Trigger alert for this voice call with tones
-						go queue.controller.AlertEngine.TriggerToneAlerts(call)
+						if attachedPending {
+							go queue.controller.AlertEngine.TriggerToneAlerts(call)
+						} else if call.HasTones {
+							go queue.controller.AlertEngine.TriggerToneAlerts(call)
+						}
 					}
 				} else {
 					// No voice on this clip — matched tones are stored as pending; DB alerts fire when a
@@ -450,6 +451,34 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 		// Process keywords if needed - use cleaned transcript
 		go queue.processKeywords(job.CallId, job.SystemId, job.TalkgroupId, cleanedResult)
 
+		// Auto-learn tone sets (observe patterns, email admins after N voiced calls)
+		go func() {
+			if postCall != nil {
+				call := postCall
+				call.Transcript = cleanedTranscript
+				queue.controller.processToneAutoLearn(call, cleanedTranscript)
+				return
+			}
+			if dbCall, err := queue.controller.Calls.GetCall(job.CallId); err == nil && dbCall != nil {
+				dbCall.Transcript = cleanedTranscript
+				queue.controller.processToneAutoLearn(dbCall, cleanedTranscript)
+			}
+		}()
+
+		// Auto-learn unit aliases (radio unitRef → human label)
+		go func() {
+			if postCall != nil {
+				call := postCall
+				call.Transcript = cleanedTranscript
+				queue.controller.processUnitAutoLearn(call, cleanedTranscript)
+				return
+			}
+			if dbCall, err := queue.controller.Calls.GetCall(job.CallId); err == nil && dbCall != nil {
+				dbCall.Transcript = cleanedTranscript
+				queue.controller.processUnitAutoLearn(dbCall, cleanedTranscript)
+			}
+		}()
+
 		duration := time.Since(startTime)
 		count := queue.processedCount.Add(1)
 		queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
@@ -508,6 +537,13 @@ func (queue *TranscriptionQueue) processKeywords(callId uint64, systemId uint64,
 	if result == nil || result.Transcript == "" {
 		queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("keyword processing skipped for call %d: no transcript", callId))
 		return
+	}
+
+	if system, ok := queue.controller.Systems.GetSystemById(systemId); ok {
+		if talkgroup, _ := system.Talkgroups.GetTalkgroupById(talkgroupId); talkgroup != nil && talkgroup.AlertingTalkgroup {
+			queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("keyword processing skipped for call %d: alerting talkgroup", callId))
+			return
+		}
 	}
 
 	// Skip keyword processing if transcript is tone-only (no actual voice)

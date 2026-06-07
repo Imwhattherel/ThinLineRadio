@@ -398,6 +398,74 @@ export class RdioScannerAdminSystemComponent implements OnInit, OnChanges {
         return (t ? t.label : `#${tagId}`) as string;
     }
 
+    /** Tags assigned to at least one talkgroup on this system (for bulk tone rollout picker). */
+    get tagsUsedInSystem(): Tag[] {
+        const tagIds = new Set<number>();
+        const collect = (talkgroups: { tagId?: number }[]) => {
+            for (const tg of talkgroups || []) {
+                if (tg?.tagId) {
+                    tagIds.add(tg.tagId);
+                }
+            }
+        };
+        if (this.talkgroupsLoaded) {
+            for (const tg of this.talkgroups) {
+                const id = tg.get('tagId')?.value;
+                if (id) tagIds.add(id);
+            }
+        } else if (this.systemData?.talkgroups) {
+            collect(this.systemData.talkgroups);
+        }
+        return this.tags.filter(t => t.id != null && tagIds.has(t.id));
+    }
+
+    private talkgroupCountForTags(controlName: string): number {
+        const selected: number[] = this.form.get(controlName)?.value || [];
+        if (!selected.length) return 0;
+        const tagSet = new Set(selected);
+        let count = 0;
+        const countIn = (talkgroups: { tagId?: number }[]) => {
+            for (const tg of talkgroups || []) {
+                if (tg?.tagId && tagSet.has(tg.tagId)) count++;
+            }
+        };
+        if (this.talkgroupsLoaded) {
+            for (const tg of this.talkgroups) {
+                const id = tg.get('tagId')?.value;
+                if (id && tagSet.has(id)) count++;
+            }
+        } else if (this.systemData?.talkgroups) {
+            countIn(this.systemData.talkgroups);
+        }
+        return count;
+    }
+
+    get bulkToneTargetCount(): number {
+        return this.talkgroupCountForTags('bulkToneDetectionTagIds');
+    }
+
+    get toneLearnTargetCount(): number {
+        return this.talkgroupCountForTags('autoLearnToneSetsTagIds');
+    }
+
+    get unitLearnTargetCount(): number {
+        return this.talkgroupCountForTags('autoLearnUnitAliasesTagIds');
+    }
+
+    get toneLearnExpiresLabel(): string {
+        const expiresAt: number = this.form.get('autoLearnToneSetsExpiresAt')?.value || 0;
+        if (!expiresAt || !this.form.get('autoLearnToneSets')?.value) return '';
+        const d = new Date(expiresAt);
+        return `Scheduled auto-off: ${d.toLocaleString()}`;
+    }
+
+    get unitAliasExpiresLabel(): string {
+        const expiresAt: number = this.form.get('autoLearnUnitAliasesExpiresAt')?.value || 0;
+        if (!expiresAt || !this.form.get('autoLearnUnitAliases')?.value) return '';
+        const d = new Date(expiresAt);
+        return `Scheduled auto-off: ${d.toLocaleString()}`;
+    }
+
     // ─── Bulk selection ────────────────────────────────────────────────────────
 
     get hasSelectedTalkgroups(): boolean { return this.selectedTalkgroupIndices.size > 0; }

@@ -1,9 +1,11 @@
 /*
  * App Font cascade — Material typography is compiled with a CSS variable at build
  * time, but MDC still emits Roboto in many component rules. These overrides
- * force the user-selected --tlr-font-primary through the entire scanner UI,
- * auth screens, and CDK overlays (select panels, dialogs, snackbars, etc.).
+ * force the user-selected --tlr-font-primary through the scanner UI only
+ * (.scanner-shell and .thinline-skin overlays). Admin uses $admin-font-stack.
  */
+
+$admin-font-stack: Roboto, "Helvetica Neue", sans-serif;
 
 @mixin tlr-app-font-cascade {
     font-family: var(--tlr-font-primary);
@@ -94,23 +96,44 @@
     }
 }
 
-html,
-body,
-app-root {
-    font-family: var(--tlr-font-primary);
-}
-
 /* Entire scanner shell (auth, console, classic, sidenavs, settings). */
 .scanner-shell {
     @include tlr-app-font-cascade;
 }
 
-/* ThinLine skin roots. */
+/* ThinLine skin roots and scanner overlay panels using this class. */
 .thinline-skin {
     @include tlr-app-font-cascade;
 }
 
-/* All CDK overlays — mat-select, menus, dialogs, snackbars, datepicker. */
-.cdk-overlay-container {
-    @include tlr-app-font-cascade;
+/* Admin console — always Roboto; never inherit the user's scanner font. */
+.admin-page-wrapper,
+.admin-dark-theme,
+.admin-select-panel {
+    --tlr-font-primary: #{$admin-font-stack};
+    --tlr-font-numeric: #{$admin-font-stack};
+    font-family: $admin-font-stack;
+
+    .mat-typography,
+    .mat-body,
+    .mat-body-1,
+    .mat-body-2,
+    .mat-caption,
+    .mat-mdc-form-field,
+    .mat-mdc-input-element,
+    .mdc-text-field__input,
+    .mat-mdc-select-value-text,
+    .mat-mdc-option,
+    .mdc-list-item__primary-text,
+    .mat-mdc-button,
+    .mdc-button__label,
+    .mat-mdc-slide-toggle,
+    .mdc-label,
+    .mat-expansion-panel-header,
+    .mat-expansion-panel-header-title,
+    .mat-expansion-panel-body,
+    h1, h2, h3, h4, h5, h6,
+    p, span, label, a, button, input, textarea, select, td, th, li {
+        font-family: $admin-font-stack !important;
+    }
 }

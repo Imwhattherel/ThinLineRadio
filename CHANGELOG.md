@@ -1,5 +1,42 @@
 # Change log
 
+## Version 26.06.04 - Released June 6, 2026
+
+### Added
+
+- **Server — Auto-learn tone sets**
+  - System and talkgroup toggles observe paging audio on selected channels and build tone-set candidates after enough matching calls (`autoLearnToneSetConfig.callsRequired`).
+  - Single-tone patterns with consistent frequencies are auto-added; stacked / ambiguous patterns are emailed to system admins for manual review.
+  - **Tag rollout**: enable auto-learn on all talkgroups matching selected tags; optional **auto-off** timer disables rollout on the system and tagged talkgroups when it expires.
+  - OpenAI (when configured) suggests human-readable tone-set labels from observed frequencies and transcripts.
+
+- **Server — Auto-learn unit aliases**
+  - Maps radio `unitRef` values to human labels (e.g. `45012` → `Engine Five`) using P25 radio metadata and voice transcripts.
+  - Consistent P25 alias on every call auto-adds without OpenAI; conflicting aliases or missing metadata trigger an OpenAI naming pass; uncertain results are emailed to system admins.
+  - System/talkgroup toggles, tag rollout, and optional auto-off mirror auto-learn tone sets.
+  - Reuses `autoLearnToneSetConfig.callsRequired` for the observation threshold.
+
+- **Server — Bulk tone detection rollout**
+  - System-level toggle applies production `toneDetectionEnabled` to all talkgroups matching selected tags — useful for enabling tone matching across paging dispatch channels in one step.
+  - Stays on until bulk rollout is turned off manually (auto-off timer removed).
+
+- **Admin — OpenAI integration (External Integrations)**
+  - Server-wide OpenAI API key and base URL for TLR-powered features (tone auto-learn naming, unit alias auto-learn) — separate from speech-to-text transcription.
+  - Selectable chat model (`gpt-5.4-mini`, `gpt-4o-mini`, `gpt-4o`) with per-request cost estimate in the admin UI.
+
+- **Server — Transcript alerts for alerting talkgroups**
+  - Talkgroups marked as **Alerting** now fire transcript-based alerts (with voice gating and deduplication) after transcription completes.
+
+### Fixed
+
+- **Client — App Font applies to scanner only, not admin**
+  - Settings → Display → App Font now scopes custom typography to the scanner shell; admin UI stays on Roboto/Material defaults so configuration pages remain readable.
+
+- **Admin — TLR logo in header**
+  - Replaced the generic `radio` icon with the ThinLine Radio logo in the server administration header.
+
+---
+
 ## Version 26.06.03 - Released June 1, 2026
 
 ### Fixed
