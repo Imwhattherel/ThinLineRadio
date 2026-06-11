@@ -1,5 +1,18 @@
 # Change log
 
+## Version 26.06.14 - Released June 10, 2026
+
+### Fixed
+
+- **Server — Startup no longer blocked before workers and HTTP listen**
+  - Call processing workers and WebSocket client handling start before delayed-call restore, admin scheduler, and DB maintenance tasks.
+  - Delayed-call restore runs in a background goroutine instead of blocking `Controller.Start()`.
+  - Log index build and category backfill deferred until after `Controller.Start()` returns and HTTP is about to listen.
+  - `logs_timestamp_idx` creation moved out of synchronous migration into post-startup background build.
+  - Added `startup:` progress lines to stdout so boot stalls are visible in the console.
+
+---
+
 ## Version 26.06.13 - Released June 10, 2026
 
 ### Fixed

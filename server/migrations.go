@@ -2534,18 +2534,37 @@ func migrateLogsIndex(db *Database) error {
 		return nil
 	}
 
-	// CONCURRENTLY builds the index without holding a write lock on the logs table,
-	// so the server stays responsive during startup even on very large log tables.
-	// It cannot run inside a transaction, which is fine here.
-	log.Println("building logs_timestamp_idx concurrently (this may take a few minutes on large tables)...")
-	query := `CREATE INDEX CONCURRENTLY "logs_timestamp_idx" ON "logs" ("timestamp" DESC)`
-	if _, err := db.Sql.Exec(query); err != nil {
-		return fmt.Errorf("migrateLogsIndex: %w", err)
+	log.Println("logs timestamp index will be built in background after startup")
+	return nil
+}
+
+func ensureLogsTimestampIndexBackground(db *Database) {
+	var exists bool
+	checkQuery := `SELECT EXISTS (
+		SELECT 1 FROM pg_indexes
+		WHERE tablename = 'logs' AND indexname = 'logs_timestamp_idx'
+	)`
+	if err := db.Sql.QueryRow(checkQuery).Scan(&exists); err != nil {
+		writeLogStdout(fmt.Sprintf("migration note (logs timestamp index check): %v", err))
+		return
+	}
+	if exists {
+		return
 	}
 
-	log.Println("logs timestamp index migration completed successfully")
+	writeLogStdout("building logs_timestamp_idx concurrently in background...")
+	if _, err := db.Sql.Exec(`CREATE INDEX CONCURRENTLY "logs_timestamp_idx" ON "logs" ("timestamp" DESC)`); err != nil {
+		writeLogStdout(fmt.Sprintf("migration note (logs timestamp index): %v", err))
+		return
+	}
+	writeLogStdout("logs timestamp index build completed")
+}
 
-	return nil
+// deferPostStartupMaintenance runs heavy, non-critical DB work after the server
+// is listening and call workers are running.
+func deferPostStartupMaintenance(db *Database) {
+	go ensureLogsTimestampIndexBackground(db)
+	startLogsCategoryMaintenance(db)
 }
 
 // migrateAudioFingerprinting adds the audioFingerprint column to the calls table.

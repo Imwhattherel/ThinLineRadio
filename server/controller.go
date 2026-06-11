@@ -3181,9 +3181,11 @@ func (controller *Controller) Start() error {
 
 	// Batch database reads for better performance
 	dbReadStart := time.Now()
+	log.Printf("startup: loading configuration from database...")
 	if err = controller.readAllData(); err != nil {
 		return err
 	}
+	log.Printf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond))
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond)))
 
 	controller.Users.SetRelayListenerEmailSyncCallbacks(
@@ -3264,28 +3266,15 @@ func (controller *Controller) Start() error {
 	// Runs once in the background at startup; deletes in small batches to avoid locking.
 	go controller.purgeLegacyDuplicates()
 
-	// Categorize historical log rows after the server is ready so call ingest and
-	// client connections are not starved for DB pool slots during startup.
-	startLogsCategoryMaintenance(controller.Database)
-
-	if err = controller.Admin.Start(); err != nil {
-		return err
-	}
-	if err := controller.Delayer.Start(); err != nil {
-		return err
-	}
-	if err := controller.Scheduler.Start(); err != nil {
-		return err
-	}
-
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	controller.workerCancel = cancel
 
-	// Create worker pool to process calls from Ingest channel
-	// Use 2x CPU cores to prevent worker pool exhaustion during blocking operations
+	// Start call workers before any optional restore work so ingest and clients
+	// are not blocked behind delayed-call replay or maintenance tasks.
 	workerCount := runtime.NumCPU() * 2
 	controller.workerStats.activeWorkers = workerCount
+	log.Printf("startup: starting %d call processing workers", workerCount)
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("Starting %d call processing workers", workerCount))
 
 	for i := 0; i < workerCount; i++ {
@@ -3323,6 +3312,7 @@ func (controller *Controller) Start() error {
 		}(i)
 	}
 
+	log.Printf("startup: worker pool ready")
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("Worker pool started - %d workers ready", workerCount))
 
 	// Start client management goroutine
@@ -3363,7 +3353,19 @@ func (controller *Controller) Start() error {
 
 	controller.Dirwatches.Start(controller)
 
-	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: server ready in %s", time.Since(startupStart).Round(time.Millisecond)))
+	if err = controller.Admin.Start(); err != nil {
+		return err
+	}
+	if err := controller.Delayer.Start(); err != nil {
+		return err
+	}
+	if err := controller.Scheduler.Start(); err != nil {
+		return err
+	}
+
+	readyIn := time.Since(startupStart).Round(time.Millisecond)
+	log.Printf("startup: server ready in %s", readyIn)
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: server ready in %s", readyIn))
 
 	return nil
 }

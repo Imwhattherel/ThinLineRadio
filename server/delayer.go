@@ -19,6 +19,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -164,6 +165,20 @@ func (delayer *Delayer) DelayForClient(call *Call, client *Client) {
 }
 
 func (delayer *Delayer) Start() error {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("delayer restore panic: %v", r)
+			}
+		}()
+		if err := delayer.restore(); err != nil {
+			log.Printf("delayer restore: %v", err)
+		}
+	}()
+	return nil
+}
+
+func (delayer *Delayer) restore() error {
 	var (
 		err   error
 		query string

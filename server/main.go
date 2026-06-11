@@ -221,12 +221,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := controller.Start(); err != nil {
-		log.Printf("FATAL: Failed to start controller: %v", err)
-		log.Printf("Server cannot continue without a running controller. Exiting.")
-		os.Exit(1)
-	}
-
 	// Create a panic recovery middleware
 	recoveryMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1056,9 +1050,18 @@ func main() {
 		log.Printf("admin interface at http://%s:%s/admin", hostname, port)
 	}
 
+	if err := controller.Start(); err != nil {
+		log.Printf("FATAL: Failed to start controller: %v", err)
+		log.Printf("Server cannot continue without a running controller. Exiting.")
+		os.Exit(1)
+	}
+
+	deferPostStartupMaintenance(controller.Database)
+
 	// Start HTTP server in a goroutine
 	httpServer = newServer(fmt.Sprintf("%s:%s", addr, port), nil)
 	go func() {
+		log.Printf("startup: HTTP listening on %s:%s", addr, port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v", err)
 		}
