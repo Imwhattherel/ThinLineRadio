@@ -3141,3 +3141,12 @@ func migrateRetentionDays(db *Database) error {
 	}
 	return nil
 }
+
+// migrateSystemDuplicateDetection adds per-system duplicate detection toggle.
+func migrateSystemDuplicateDetection(db *Database) error {
+	query := `ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "duplicateDetectionEnabled" boolean NOT NULL DEFAULT true`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (system duplicate detection): %v", err)
+	}
+	return nil
+}

@@ -306,6 +306,7 @@ func main() {
 
 	http.HandleFunc("/api/admin/system-no-audio-settings", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemNoAudioSettingsHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/system-retention-settings", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemRetentionSettingsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/system-duplicate-detection-settings", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemDuplicateDetectionSettingsHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/transcription-failures", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.TranscriptionFailuresHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/transcription-failure-threshold", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.TranscriptionFailureThresholdHandler)).ServeHTTP)

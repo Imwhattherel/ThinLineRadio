@@ -755,7 +755,7 @@ func (controller *Controller) IngestCall(call *Call) {
 		}
 	}
 
-	if !controller.Options.DisableDuplicateDetection {
+	if !controller.Options.DisableDuplicateDetection && (system == nil || system.DuplicateDetectionEnabled) {
 		// ── Arrival-time duplicate detection ─────────────────────────────────
 		// Two passes using server receivedAt only — no P25 timestamp, no hash.
 		// Catches multi-recorder uploads of the same transmission that arrive

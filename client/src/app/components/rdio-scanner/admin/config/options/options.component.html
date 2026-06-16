@@ -357,6 +357,32 @@
         </mat-form-field>
       </div>
 
+      <div *ngIf="!form?.get('disableDuplicateDetection')?.value && systemsForm && systemsForm.length > 0" style="margin-top: 24px;">
+        <p style="margin-bottom: 8px;">
+          <span class="mat-body"><strong>Per-System Duplicate Detection</strong></span><br>
+          <span class="mat-caption">Disable duplicate suppression for individual systems while keeping it enabled globally. Matching still scopes to each system and talkgroup.</span>
+        </p>
+        <table mat-table [dataSource]="systemsForm.controls" style="width: 100%;">
+
+          <ng-container matColumnDef="label">
+            <th mat-header-cell *matHeaderCellDef>System</th>
+            <td mat-cell *matCellDef="let systemCtrl">{{ systemCtrl.get('label')?.value || 'Unnamed System' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="duplicateDetectionEnabled">
+            <th mat-header-cell *matHeaderCellDef>Enabled</th>
+            <td mat-cell *matCellDef="let systemCtrl">
+              <ng-container [formGroup]="asFormGroup(systemCtrl)">
+                <mat-slide-toggle color="primary" formControlName="duplicateDetectionEnabled"></mat-slide-toggle>
+              </ng-container>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="['label', 'duplicateDetectionEnabled']"></tr>
+          <tr mat-row *matRowDef="let row; columns: ['label', 'duplicateDetectionEnabled']"></tr>
+        </table>
+      </div>
+
       <!-- Audio Encryption -->
       <div class="row">
         <p>

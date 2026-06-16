@@ -1151,6 +1151,58 @@ func (admin *Admin) SystemRetentionSettingsHandler(w http.ResponseWriter, r *htt
 	})
 }
 
+// SystemDuplicateDetectionSettingsHandler handles updating per-system duplicate detection toggles.
+func (admin *Admin) SystemDuplicateDetectionSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	t := admin.GetAuthorization(r)
+	if !admin.ValidateToken(t) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		SystemId                    uint `json:"systemId"`
+		DuplicateDetectionEnabled bool `json:"duplicateDetectionEnabled"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "invalid request body",
+		})
+		return
+	}
+
+	system, ok := admin.Controller.Systems.GetSystemById(uint64(request.SystemId))
+	if !ok || system == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "system not found",
+		})
+		return
+	}
+
+	system.DuplicateDetectionEnabled = request.DuplicateDetectionEnabled
+
+	if err := admin.Controller.Systems.Write(admin.Controller.Database); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to save system settings: %v", err),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "system duplicate detection settings updated successfully",
+	})
+}
+
 // CallAudioHandler serves call audio for admin playback
 func (admin *Admin) CallAudioHandler(w http.ResponseWriter, r *http.Request) {
 	t := admin.GetAuthorization(r)
@@ -1609,6 +1661,7 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 					_, hasEnabled := m["noAudioAlertsEnabled"]
 					_, hasThreshold := m["noAudioThresholdMinutes"]
 					_, hasRetention := m["retentionDays"]
+					_, hasDuplicateDetection := m["duplicateDetectionEnabled"]
 					// Try to find the matching existing system by id, then by systemRef
 					var existing *System
 					if idVal, ok := m["id"].(float64); ok {
@@ -1628,6 +1681,9 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						}
 						if !hasRetention {
 							m["retentionDays"] = existing.RetentionDays
+						}
+						if !hasDuplicateDetection {
+							m["duplicateDetectionEnabled"] = existing.DuplicateDetectionEnabled
 						}
 					}
 
@@ -2661,6 +2717,9 @@ func (admin *Admin) SystemSaveHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, has := incoming["retentionDays"]; !has {
 			incoming["retentionDays"] = existing.RetentionDays
+		}
+		if _, has := incoming["duplicateDetectionEnabled"]; !has {
+			incoming["duplicateDetectionEnabled"] = existing.DuplicateDetectionEnabled
 		}
 
 		if tgs, ok := incoming["talkgroups"].([]any); ok {

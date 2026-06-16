@@ -1,5 +1,17 @@
 # Change log
 
+## Version 26.06.17 - Released June 16, 2026
+
+### Added
+
+- **Admin — Per-system duplicate detection (Issue #225)**
+  - Global **Disable Duplicate Detection** remains the master switch in Options → Audio Settings.
+  - Each system can enable or disable duplicate suppression independently when global detection is on.
+  - Configurable from Options (per-system table), and from individual system settings.
+  - Existing systems default to enabled; partial system/Copilot saves preserve the setting.
+
+---
+
 ## Version 26.06.16 - Released June 16, 2026
 
 ### Added

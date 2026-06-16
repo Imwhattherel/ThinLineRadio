@@ -506,6 +506,7 @@ export interface System {
     noAudioAlertsEnabled?: boolean;     // Enable no-audio alerts for this system
     noAudioThresholdMinutes?: number;   // Minutes without audio before alerting
     retentionDays?: number;             // Days to retain calls; 0 = use global pruneDays
+    duplicateDetectionEnabled?: boolean; // Per-system duplicate suppression when global is on
     alertsEnabled?: boolean;            // Admin toggle: false disables all alerts & transcription for this system
     /** When true (default), auto-populated talkgroups are created with alerts enabled */
     autoPopulateAlertsEnabled?: boolean;
@@ -596,6 +597,7 @@ enum url {
     systemhealth = 'systemhealth',
     systemNoAudioSettings = 'system-no-audio-settings',
     systemRetentionSettings = 'system-retention-settings',
+    systemDuplicateDetectionSettings = 'system-duplicate-detection-settings',
     toneDetectionIssueThreshold = 'tone-detection-issue-threshold',
     noAudioThresholdMinutes = 'no-audio-threshold-minutes',
     noAudioMultiplier = 'no-audio-multiplier',
@@ -1483,6 +1485,22 @@ export class RdioScannerAdminService implements OnDestroy {
         }
     }
 
+    async saveSystemDuplicateDetectionSettings(systemId: number, duplicateDetectionEnabled: boolean): Promise<void> {
+        try {
+            await firstValueFrom(this.ngHttpClient.post(
+                this.getUrl(url.systemDuplicateDetectionSettings),
+                {
+                    systemId,
+                    duplicateDetectionEnabled,
+                },
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+        } catch (error) {
+            this.errorHandler(error);
+            throw error;
+        }
+    }
+
     newApikeyForm(apikey?: Apikey): FormGroup {
         return this.ngFormBuilder.group({
             id: this.ngFormBuilder.control(apikey?.id),
@@ -1827,6 +1845,7 @@ export class RdioScannerAdminService implements OnDestroy {
             noAudioAlertsEnabled: this.ngFormBuilder.control(system?.noAudioAlertsEnabled !== false),
             noAudioThresholdMinutes: this.ngFormBuilder.control(system?.noAudioThresholdMinutes || 30),
             retentionDays: this.ngFormBuilder.control(system?.retentionDays ?? 0, [Validators.min(0)]),
+            duplicateDetectionEnabled: this.ngFormBuilder.control(system?.duplicateDetectionEnabled !== false),
             alertsEnabled: this.ngFormBuilder.control(system?.alertsEnabled !== false),
             autoPopulateAlertsEnabled: this.ngFormBuilder.control(system?.autoPopulateAlertsEnabled !== false),
             autoPopulateUnits: this.ngFormBuilder.control(system?.autoPopulateUnits === true),

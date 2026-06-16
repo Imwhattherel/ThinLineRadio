@@ -108,6 +108,14 @@
 
         <div class="settings-field settings-field--toggle">
             <div class="toggle-row">
+                <label class="field-label">Duplicate detection</label>
+                <mat-slide-toggle color="primary" formControlName="duplicateDetectionEnabled"></mat-slide-toggle>
+            </div>
+            <span class="field-hint">When enabled (and global duplicate detection is on), suppress duplicate calls on this system.</span>
+        </div>
+
+        <div class="settings-field settings-field--toggle">
+            <div class="toggle-row">
                 <label class="field-label">Auto Populate</label>
                 <mat-slide-toggle color="primary" formControlName="autoPopulate"></mat-slide-toggle>
             </div>

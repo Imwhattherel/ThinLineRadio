@@ -649,6 +649,9 @@ func (admin *Admin) copilotSaveSystem(payloadJSON []byte) error {
 		if _, has := incoming["retentionDays"]; !has {
 			incoming["retentionDays"] = existing.RetentionDays
 		}
+		if _, has := incoming["duplicateDetectionEnabled"]; !has {
+			incoming["duplicateDetectionEnabled"] = existing.DuplicateDetectionEnabled
+		}
 
 		if tgs, ok := incoming["talkgroups"].([]any); ok {
 			for _, tr := range tgs {
