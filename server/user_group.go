@@ -149,6 +149,24 @@ func (ug *UserGroup) GetPricingOptions() []PricingOption {
 	return ug.pricingOptionsData
 }
 
+// HasAnySystemAccess reports whether the group grants access to at least one system.
+func (ug *UserGroup) HasAnySystemAccess() bool {
+	if ug == nil {
+		return false
+	}
+	if ug.systemAccessDataNew != nil {
+		switch v := ug.systemAccessDataNew.(type) {
+		case []map[string]interface{}:
+			return len(v) > 0
+		}
+	}
+	// Legacy: empty list means all systems.
+	if len(ug.systemAccessData) == 0 {
+		return true
+	}
+	return len(ug.systemAccessData) > 0
+}
+
 func (ug *UserGroup) HasSystemAccess(systemId uint64) bool {
 	// If using new format, check it
 	if ug.systemAccessDataNew != nil {

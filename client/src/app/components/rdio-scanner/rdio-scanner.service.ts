@@ -594,14 +594,17 @@ export class RdioScannerService implements OnDestroy {
 
             this.emitEvent({ livefeedMode: this.livefeedMode, playbackPending: id, queue: queueEventValue });
         } else if (this.livefeedMode === RdioScannerLivefeedMode.Online) {
-            // Keep live feed on - don't switch to Playback mode if live feed is already running
-            // Just play the call while live feed continues in the background
-            // Clear any existing playbackList when switching to playback mode for a one-off call
             if (this.isOneOffPlayback) {
+                // One-off archive play (e.g. alerts) while live feed is on — keep streaming.
                 this.playbackList = undefined;
+                this.emitEvent({ livefeedMode: this.livefeedMode, playbackPending: id, queue: queueEventValue });
+            } else {
+                // Search playback: enter Playback mode so skip/auto-advance walks the result list.
+                this.livefeedModePriorToPlayback = this.livefeedMode;
+                this.livefeedMode = RdioScannerLivefeedMode.Playback;
+                this.stopLivefeed();
+                this.emitEvent({ livefeedMode: this.livefeedMode, playbackPending: id, queue: queueEventValue });
             }
-
-            this.emitEvent({ livefeedMode: this.livefeedMode, playbackPending: id, queue: queueEventValue });
 
         } else if (this.livefeedMode === RdioScannerLivefeedMode.Playback) {
             // If we're already in playback mode but don't have a playbackList, 
@@ -1589,7 +1592,13 @@ export class RdioScannerService implements OnDestroy {
                 this.loadAndPlay(this.playbackList.results[0].id);
 
             } else if (index === this.playbackList.results.length - 1) {
-                if (this.playbackList.options.offset < (this.playbackList.count - this.playbackList.options.limit)) {
+                if (this.playbackList.hasMore) {
+                    this.searchCalls(Object.assign({}, this.playbackList.options, {
+                        offset: this.playbackList.results.length,
+                    }));
+
+                } else if (this.playbackList.options.offset > 0
+                    && this.playbackList.options.offset < (this.playbackList.count - this.playbackList.options.limit)) {
                     this.searchCalls(Object.assign({}, this.playbackList.options, {
                         offset: this.playbackList.options.offset + this.playbackList.options.limit,
                     }));

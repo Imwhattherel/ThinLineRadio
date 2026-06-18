@@ -47,6 +47,12 @@ export class RdioScannerComponent implements OnDestroy, OnInit {
 
     useClassicView = window?.localStorage?.getItem('rdio-scanner-classic-view') === 'true';
 
+    /** Lazy-mount classic sidenav panels on first open (shared components, not legacy forks). */
+    classicSearchMounted = false;
+    classicSelectMounted = false;
+    classicSettingsMounted = false;
+    classicAlertsMounted = false;
+
     /** Mobile browsers cannot use the scanner UI; see mobile-web-hub. */
     readonly isMobileRestrictedBrowser = isMobileRestrictedBrowser();
 
@@ -56,10 +62,68 @@ export class RdioScannerComponent implements OnDestroy, OnInit {
     @ViewChild('classicSettingsPanel') private classicSettingsPanel: MatSidenav | undefined;
     @ViewChild('classicAlertsPanel')  private classicAlertsPanel:  MatSidenav | undefined;
     @ViewChild('classicSearchComponent') private classicSearchComponent: RdioScannerSearchComponent | undefined;
+    @ViewChild('classicScrollableSelect') private classicScrollableSelect: ElementRef<HTMLElement> | undefined;
+    @ViewChild('classicScrollableSettings') private classicScrollableSettings: ElementRef<HTMLElement> | undefined;
+    @ViewChild('classicScrollableAlerts') private classicScrollableAlerts: ElementRef<HTMLElement> | undefined;
 
     toggleClassicView(): void {
+        const leavingClassic = this.useClassicView;
         this.useClassicView = !this.useClassicView;
         window?.localStorage?.setItem('rdio-scanner-classic-view', String(this.useClassicView));
+
+        if (leavingClassic) {
+            this.rdioScannerService.stopPlaybackMode();
+            this.resetClassicPanelState();
+        }
+    }
+
+    openClassicSearchPanel(): void {
+        this.classicSearchMounted = true;
+        setTimeout(() => {
+            this.classicSearchComponent?.scrollResultsToTop();
+            this.classicSearchPanel?.open();
+            this.classicSearchComponent?.searchCalls();
+        });
+    }
+
+    openClassicSelectPanel(): void {
+        this.classicSelectMounted = true;
+        setTimeout(() => {
+            const el = this.classicScrollableSelect?.nativeElement;
+            if (el) {
+                this.classicScrollTop(el);
+            }
+            this.classicSelectPanel?.open();
+        });
+    }
+
+    openClassicSettingsPanel(): void {
+        this.classicSettingsMounted = true;
+        setTimeout(() => {
+            const el = this.classicScrollableSettings?.nativeElement;
+            if (el) {
+                this.classicScrollTop(el);
+            }
+            this.classicSettingsPanel?.open();
+        });
+    }
+
+    openClassicAlertsPanel(): void {
+        this.classicAlertsMounted = true;
+        setTimeout(() => {
+            const el = this.classicScrollableAlerts?.nativeElement;
+            if (el) {
+                this.classicScrollTop(el);
+            }
+            this.classicAlertsPanel?.open();
+        });
+    }
+
+    private resetClassicPanelState(): void {
+        this.classicSearchMounted = false;
+        this.classicSelectMounted = false;
+        this.classicSettingsMounted = false;
+        this.classicAlertsMounted = false;
     }
 
     classicScrollTop(e: HTMLElement): void {

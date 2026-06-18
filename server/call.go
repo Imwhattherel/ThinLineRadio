@@ -900,19 +900,21 @@ func (calls *Calls) Prune(db *Database, defaultPruneDays uint) error {
 
 	var query string
 	if db.Config.DbType == DbTypePostgresql {
+		// Cast retention days and dayMs to bigint before multiply — integer *
+		// integer overflows for any retention >= 25 days (25 * 86400000 > 2^31-1).
 		query = fmt.Sprintf(`DELETE FROM "calls" c
 USING "talkgroups" t, "systems" s
 WHERE c."talkgroupId" = t."talkgroupId"
 	AND c."systemId" = s."systemId"
 	AND (%s) > 0
-	AND c."timestamp" < ($1::bigint - (%s) * %d)`, effectiveDaysExpr, effectiveDaysExpr, dayMs)
+	AND c."timestamp" < ($1::bigint - ((%s)::bigint * %d::bigint))`, effectiveDaysExpr, effectiveDaysExpr, dayMs)
 	} else {
 		query = fmt.Sprintf(`DELETE FROM "calls" WHERE "callId" IN (
 SELECT c."callId" FROM "calls" c
 INNER JOIN "talkgroups" t ON c."talkgroupId" = t."talkgroupId"
 INNER JOIN "systems" s ON c."systemId" = s."systemId"
 WHERE (%s) > 0
-	AND c."timestamp" < (? - (%s) * %d))`, effectiveDaysExpr, effectiveDaysExpr, dayMs)
+	AND c."timestamp" < (? - CAST((%s) AS INTEGER) * %d))`, effectiveDaysExpr, effectiveDaysExpr, dayMs)
 	}
 
 	if _, err := db.Sql.Exec(query, nowMs); err != nil {

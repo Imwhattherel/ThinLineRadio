@@ -27,8 +27,8 @@
             </button>
         </div>
         <div class="header-actions">
-            <button *ngIf="activeTab === 'alerts'" type="button" class="btn-refresh" (click)="loadAlerts()" [disabled]="loading">
-                {{ loading ? 'Loading...' : 'Refresh Alerts' }}
+            <button *ngIf="activeTab === 'alerts'" type="button" class="btn-refresh" (click)="refreshAlertsTab()" [disabled]="alertsTabLoading">
+                {{ alertsTabLoading ? 'Loading...' : 'Refresh Alerts' }}
             </button>
             <button *ngIf="activeTab === 'transcripts'" type="button" class="btn-refresh" (click)="loadTranscripts()" [disabled]="loadingTranscripts">
                 {{ loadingTranscripts ? 'Loading...' : 'Refresh Transcripts' }}
@@ -106,29 +106,85 @@
     </div>
     
     <div class="alerts-content" *ngIf="!boardEmbed && panelMode === 'alertsAndPreferences' && activeTab === 'alerts'">
-        <div *ngIf="alerts.length === 0 && !loading" class="no-alerts">
+        <div class="alerts-subtabs" *ngIf="canViewSystemAlerts">
+            <button type="button" class="alerts-subtab" [class.active]="alertsViewMode === 'mine'" (click)="setAlertsViewMode('mine')">
+                My alerts
+            </button>
+            <button type="button" class="alerts-subtab" [class.active]="alertsViewMode === 'system'" (click)="setAlertsViewMode('system')">
+                System
+            </button>
+            <button type="button" class="alerts-subtab" [class.active]="alertsViewMode === 'all'" (click)="setAlertsViewMode('all')">
+                All
+            </button>
+        </div>
+
+        <div class="alerts-search-bar" *ngIf="showMyAlertsSection || showSystemAlertsSection">
+            <mat-icon class="alerts-search-icon">search</mat-icon>
+            <input type="text"
+                   [(ngModel)]="alertSearch"
+                   placeholder="Search alerts…"
+                   class="alerts-search-input"
+                   aria-label="Search alerts">
+            <button *ngIf="hasActiveAlertSearch"
+                    type="button"
+                    class="alerts-search-clear"
+                    (click)="clearAlertSearch()"
+                    title="Clear search">
+                <mat-icon>close</mat-icon>
+            </button>
+        </div>
+
+        <div *ngIf="showMyAlertsSection && alerts.length > 0 && filteredAlertGroups.length === 0 && hasActiveAlertSearch" class="no-alerts">
+            <p>No alerts match your search</p>
+        </div>
+
+        <div *ngIf="showSystemAlertsSection && systemAlerts.length > 0 && filteredSystemAlerts.length === 0 && hasActiveAlertSearch" class="no-alerts">
+            <p>No system alerts match your search</p>
+        </div>
+
+        <div *ngIf="showMyAlertsSection && alerts.length === 0 && !loading && alertsViewMode !== 'all'" class="no-alerts">
             <p>No alerts</p>
         </div>
-        
-        <div *ngIf="loading" class="loading">
+
+        <div *ngIf="showSystemAlertsSection && systemAlerts.length === 0 && !loadingSystemAlerts && alertsViewMode === 'system'" class="no-alerts">
+            <p>No system alerts in your access scope</p>
+        </div>
+
+        <div *ngIf="showMyAlertsSection && showSystemAlertsSection && alerts.length === 0 && systemAlerts.length === 0 && !alertsTabLoading" class="no-alerts">
+            <p>No alerts</p>
+        </div>
+
+        <div *ngIf="alertsTabLoading && alertsViewMode === 'mine' && alerts.length === 0" class="loading">
             <p>Loading alerts...</p>
         </div>
-        
-        <div *ngIf="alerts.length > 0" class="alerts-list">
+        <div *ngIf="alertsTabLoading && alertsViewMode === 'system' && systemAlerts.length === 0" class="loading">
+            <p>Loading system alerts...</p>
+        </div>
+        <div *ngIf="alertsTabLoading && alertsViewMode === 'all' && alerts.length === 0 && systemAlerts.length === 0" class="loading">
+            <p>Loading alerts...</p>
+        </div>
+
+        <h4 class="alerts-section-label" *ngIf="showMyAlertsSection && alertsViewMode === 'all'">My alerts</h4>
+
+        <div *ngIf="showMyAlertsSection && filteredAlertGroups.length > 0" class="alerts-list">
             <!-- All Alerts - Sorted by Most Recent -->
-            <mat-expansion-panel *ngFor="let group of allAlertGroups; trackBy: trackByGroupKey"
+            <mat-expansion-panel *ngFor="let group of filteredAlertGroups; trackBy: trackByGroupKey"
                                  class="alert-group-panel"
                                  [class.tone-alert-group]="group.groupType === 'tone'"
                                  [class.channel-alert-group]="group.groupType === 'channel'">
-                <mat-expansion-panel-header>
-                    <mat-panel-title>
-                        <mat-icon class="group-icon">{{ group.groupType === 'tone' ? 'notifications_active' : 'tag' }}</mat-icon>
+                <mat-expansion-panel-header collapsedHeight="30px" expandedHeight="30px" class="group-panel-header">
+                    <mat-panel-title class="group-panel-title">
+                        <span class="group-type-chip" [class.tone]="group.groupType === 'tone'" [class.channel]="group.groupType === 'channel'">
+                            <mat-icon class="group-icon">{{ group.groupType === 'tone' ? 'notifications_active' : 'tag' }}</mat-icon>
+                        </span>
                         <span class="group-name">{{ group.key }}</span>
                     </mat-panel-title>
-                    <mat-panel-description>
-                        <span class="alert-count">{{ group.alerts.length }} ALERT{{ group.alerts.length !== 1 ? 'S' : '' }}</span>
-                        <span class="alert-separator">&nbsp;&nbsp;&nbsp;</span>
-                        <span class="group-timestamp">{{ formatTimestamp(group.latestTimestamp) }}</span>
+                    <mat-panel-description class="group-panel-meta">
+                        <span class="group-count-badge" [attr.title]="group.alerts.length + ' alert(s)'">{{ group.alerts.length }}</span>
+                        <span class="group-time">
+                            <span class="group-time-date">{{ formatAlertDate(group.latestTimestamp) }}</span>
+                            <span class="group-time-clock">{{ formatAlertTime(group.latestTimestamp) }}</span>
+                        </span>
                     </mat-panel-description>
                 </mat-expansion-panel-header>
                 
@@ -136,6 +192,7 @@
                     <div *ngFor="let alert of group.alerts; trackBy: trackByAlertId" 
                          class="alert-item" 
                          [class.tone]="alert.alertType === 'tone'"
+                         [class.keyword]="alert.alertType === 'keyword'"
                          [class.tone-keyword]="alert.alertType === 'tone+keyword'"
                          [class.transcript]="alert.alertType === 'transcript'">
                         
@@ -184,7 +241,7 @@
                                 </div>
                                 <div *ngIf="alert.transcript || alert.transcriptSnippet" class="alert-transcript">
                                     <p class="transcript-text"
-                                       [innerHTML]="renderTranscript(alert.transcript || alert.transcriptSnippet || '', alert.transcriptAnnotations)"></p>
+                                       [innerHTML]="renderTranscript(alert.transcript || alert.transcriptSnippet || '', alert.transcriptAnnotations, alertSearch)"></p>
                                 </div>
                             </div>
                         </div>
@@ -192,6 +249,27 @@
                 </div>
             </mat-expansion-panel>
 
+        </div>
+
+        <h4 class="alerts-section-label" *ngIf="showSystemAlertsSection && alertsViewMode === 'all'">System alerts</h4>
+
+        <div *ngIf="showSystemAlertsSection && filteredSystemAlerts.length > 0" class="system-alerts-list">
+            <div *ngFor="let alert of filteredSystemAlerts; trackBy: trackBySystemAlertId"
+                 class="system-alert-item"
+                 [class.severity-critical]="alert.severity === 'critical'"
+                 [class.severity-error]="alert.severity === 'error'"
+                 [class.severity-warning]="alert.severity === 'warning'"
+                 [class.severity-info]="alert.severity === 'info'">
+                <div class="system-alert-header">
+                    <div class="system-alert-header-left">
+                        <span class="system-alert-severity">{{ getSystemAlertSeverityIcon(alert.severity) }}</span>
+                        <span class="system-alert-type-badge">{{ getSystemAlertTypeLabel(alert) }}</span>
+                        <span class="system-alert-title">{{ alert.title }}</span>
+                    </div>
+                    <span class="system-alert-timestamp">{{ formatTimestamp(alert.createdAt) }}</span>
+                </div>
+                <p class="system-alert-message">{{ alert.message }}</p>
+            </div>
         </div>
     </div>
     

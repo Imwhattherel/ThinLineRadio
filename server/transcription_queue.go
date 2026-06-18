@@ -555,6 +555,20 @@ func (queue *TranscriptionQueue) processKeywords(callId uint64, systemId uint64,
 
 	queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("processing keywords for call %d (system=%d, talkgroup=%d)", callId, systemId, talkgroupId))
 
+	system, sysOk := queue.controller.Systems.GetSystemById(systemId)
+	if !sysOk {
+		return
+	}
+	talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(talkgroupId)
+	if !tgOk {
+		return
+	}
+	minimalCall := &Call{
+		Id:        callId,
+		System:    system,
+		Talkgroup: talkgroup,
+	}
+
 	// Get all users with keyword alerts enabled for this talkgroup from cache
 	userIds := queue.controller.PreferencesCache.GetUsersForTalkgroup(systemId, talkgroupId)
 
@@ -571,6 +585,9 @@ func (queue *TranscriptionQueue) processKeywords(callId uint64, systemId uint64,
 	for _, userId := range userIds {
 		pref := queue.controller.PreferencesCache.GetPreference(userId, systemId, talkgroupId)
 		if pref == nil || !pref.AlertEnabled || !pref.KeywordAlerts {
+			continue
+		}
+		if !queue.controller.userEligibleForTalkgroupAlert(userId, minimalCall) {
 			continue
 		}
 

@@ -3555,6 +3555,60 @@ func (controller *Controller) userHasAccess(user *User, call *Call) bool {
 	return user.HasAccess(call)
 }
 
+func (controller *Controller) userEligibleForTalkgroupAlert(userId uint64, call *Call) bool {
+	if call == nil || call.System == nil || call.Talkgroup == nil {
+		return false
+	}
+	user := controller.Users.GetUserById(userId)
+	if user == nil {
+		return false
+	}
+	return controller.userHasAccess(user, call)
+}
+
+func (controller *Controller) userHasSystemScopeAccess(user *User, systemRef uint) bool {
+	if user == nil || systemRef == 0 {
+		return false
+	}
+	if user.UserGroupId > 0 {
+		group := controller.UserGroups.Get(user.UserGroupId)
+		if group != nil && !group.HasSystemAccess(uint64(systemRef)) {
+			return false
+		}
+	}
+	return user.HasSystemScopeAccess(systemRef)
+}
+
+func (controller *Controller) userHasTalkgroupScopeAccess(user *User, systemRef uint, talkgroupRef uint) bool {
+	if user == nil || systemRef == 0 || talkgroupRef == 0 {
+		return false
+	}
+	call := &Call{
+		System:    &System{SystemRef: systemRef},
+		Talkgroup: &Talkgroup{TalkgroupRef: talkgroupRef},
+	}
+	return controller.userHasAccess(user, call)
+}
+
+func (controller *Controller) userCanViewSystemAlerts(user *User) bool {
+	if user == nil {
+		return false
+	}
+	if user.SystemAdmin {
+		return true
+	}
+	if user.HasAnySystemAccess() {
+		return true
+	}
+	if user.UserGroupId > 0 {
+		group := controller.UserGroups.Get(user.UserGroupId)
+		if group != nil && group.HasAnySystemAccess() {
+			return true
+		}
+	}
+	return false
+}
+
 // Helper method to get effective delay for a user (uses group settings if available)
 func (controller *Controller) userEffectiveDelay(user *User, call *Call, defaultDelay uint) uint {
 	if user == nil || call == nil || call.System == nil || call.Talkgroup == nil {

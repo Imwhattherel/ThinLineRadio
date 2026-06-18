@@ -22,6 +22,24 @@ import { Injectable } from '@angular/core';
 import { Observable, BehaviorSubject, of } from 'rxjs';
 import { RdioScannerAlert, RdioScannerAlertPreference, RdioScannerKeywordList } from '../rdio-scanner';
 
+export interface RdioScannerSystemAlert {
+    id: number;
+    alertType: string;
+    severity: string;
+    title: string;
+    message: string;
+    data?: string;
+    createdAt: number;
+    createdBy?: number;
+    dismissed?: boolean;
+}
+
+export interface RdioScannerSystemAlertsResponse {
+    alerts: RdioScannerSystemAlert[];
+    isSystemAdmin?: boolean;
+    canViewSystemAlerts?: boolean;
+}
+
 export interface GlobalTrainingProgress {
     goalHours: number;
     submissions?: number;
@@ -107,9 +125,6 @@ export class AlertsService {
         return path;
     }
 
-    /**
-     * Get all alerts (full fetch - used for initial load)
-     */
     getAlerts(limit: number = 50, offset: number = 0, pin?: string): Observable<any[]> {
         let url = `${this.getFullUrl(this.apiUrl)}?limit=${limit}&offset=${offset}`;
         if (pin) {
@@ -117,6 +132,15 @@ export class AlertsService {
         }
         const headers = pin ? new HttpHeaders().set('Authorization', `Bearer ${pin}`) : undefined;
         return this.http.get<any[]>(url, { headers });
+    }
+
+    getSystemAlerts(limit: number = 50, pin?: string, includeDismissed: boolean = false): Observable<RdioScannerSystemAlertsResponse> {
+        let url = `${this.getFullUrl('/api/system-alerts')}?limit=${limit}&includeDismissed=${includeDismissed}`;
+        if (pin) {
+            url += `&pin=${encodeURIComponent(pin)}`;
+        }
+        const headers = pin ? new HttpHeaders().set('Authorization', `Bearer ${pin}`) : undefined;
+        return this.http.get<RdioScannerSystemAlertsResponse>(url, { headers });
     }
 
     /**

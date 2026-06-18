@@ -18,6 +18,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -215,6 +216,9 @@ func (engine *AlertEngine) TriggerPreAlerts(call *Call) {
 		if pref == nil || !pref.AlertEnabled || !pref.ToneAlerts {
 			continue
 		}
+		if !engine.controller.userEligibleForTalkgroupAlert(userId, call) {
+			continue
+		}
 
 		userPreference := userPref{
 			userId:             userId,
@@ -329,6 +333,9 @@ func (engine *AlertEngine) TriggerToneAlerts(call *Call) {
 		if pref == nil || !pref.AlertEnabled || !pref.ToneAlerts {
 			continue
 		}
+		if !engine.controller.userEligibleForTalkgroupAlert(userId, call) {
+			continue
+		}
 
 		userPreference := userPref{
 			userId:             userId,
@@ -434,6 +441,9 @@ func (engine *AlertEngine) TriggerToneAlerts(call *Call) {
 			// Get user object to check delays
 			userObj := engine.controller.Users.GetUserById(user.userId)
 			if userObj == nil {
+				continue
+			}
+			if !engine.controller.userHasAccess(userObj, call) {
 				continue
 			}
 
@@ -616,6 +626,15 @@ func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, 
 	}
 
 	if system != nil && talkgroup != nil {
+		minimalCall := &Call{
+			Id:        callId,
+			System:    system,
+			Talkgroup: talkgroup,
+		}
+		if !engine.controller.userHasAccess(user, minimalCall) {
+			return
+		}
+
 		// Get call timestamp from database (avoid GetCall which checks global delays)
 		var callTimestamp int64
 		var tsQuery string
@@ -925,8 +944,13 @@ func mergeKeywordsJson(existingJson, newJson string) string {
 	seen := make(map[string]struct{}, len(existing)+len(incoming))
 	merged := make([]string, 0, len(existing)+len(incoming))
 	for _, kw := range append(existing, incoming...) {
-		if _, ok := seen[kw]; !ok {
-			seen[kw] = struct{}{}
+		kw = strings.TrimSpace(kw)
+		if kw == "" {
+			continue
+		}
+		key := strings.ToLower(kw)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
 			merged = append(merged, kw)
 		}
 	}

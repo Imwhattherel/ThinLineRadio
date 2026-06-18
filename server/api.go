@@ -2937,6 +2937,27 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			system, sysOk := api.Controller.Systems.GetSystemById(systemId)
+			if !sysOk {
+				continue
+			}
+			talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(talkgroupId)
+			if !tgOk {
+				continue
+			}
+
+			minimalCall := &Call{
+				Id:        callId,
+				System:    system,
+				Talkgroup: talkgroup,
+			}
+			if callTimestamp.Valid {
+				minimalCall.Timestamp = time.UnixMilli(callTimestamp.Int64)
+			}
+			if !api.Controller.userHasAccess(client.User, minimalCall) {
+				continue
+			}
+
 			// Fallback snippet if alert was created before we had one
 			snippet := transcriptSnippet
 			if snippet == "" && callTranscript.Valid {
@@ -3054,7 +3075,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				alertMap["matchedToneSetNames"] = matchedToneSetNames // All matched tone sets (for backward compatibility)
 			}
 
-			// Filter alert based on user preferences only (no access restrictions for alerts)
+			// Filter by user/group access, then alert preferences (tone/keyword/transcript).
 			prefKey := fmt.Sprintf("%d-%d", systemId, talkgroupId)
 			pref, hasPreference := preferences[prefKey]
 
@@ -3217,34 +3238,16 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 
 			// Check if alert is still delayed for this user (respects group delays)
 			if callTimestamp.Valid && client.User != nil {
-				// Get system and talkgroup to build call object for delay check
-				system, _ := api.Controller.Systems.GetSystemById(systemId)
-				var talkgroup *Talkgroup
-				if system != nil {
-					talkgroup, _ = system.Talkgroups.GetTalkgroupById(talkgroupId)
-				}
+				// Get user's effective delay (includes group delays)
+				defaultDelay := api.Controller.Options.DefaultSystemDelay
+				effectiveDelay := api.Controller.userEffectiveDelay(client.User, minimalCall, defaultDelay)
 
-				if system != nil && talkgroup != nil {
-					// Create minimal call object for delay check
-					callTimestampTime := time.UnixMilli(callTimestamp.Int64)
-					minimalCall := &Call{
-						Id:        callId,
-						System:    system,
-						Talkgroup: talkgroup,
-						Timestamp: callTimestampTime,
-					}
-
-					// Get user's effective delay (includes group delays)
-					defaultDelay := api.Controller.Options.DefaultSystemDelay
-					effectiveDelay := api.Controller.userEffectiveDelay(client.User, minimalCall, defaultDelay)
-
-					// Check if call is still delayed
-					if effectiveDelay > 0 {
-						delayCompletionTime := callTimestampTime.Add(time.Duration(effectiveDelay) * time.Minute)
-						if time.Now().Before(delayCompletionTime) {
-							// Alert is still delayed for this user, skip it
-							continue
-						}
+				// Check if call is still delayed
+				if effectiveDelay > 0 {
+					delayCompletionTime := minimalCall.Timestamp.Add(time.Duration(effectiveDelay) * time.Minute)
+					if time.Now().Before(delayCompletionTime) {
+						// Alert is still delayed for this user, skip it
+						continue
 					}
 				}
 			}
@@ -3691,11 +3694,21 @@ func (api *Api) AlertPreferencesHandler(w http.ResponseWriter, r *http.Request) 
 		for _, pref := range cachedPrefs {
 			// Look up systemRef and talkgroupRef from in-memory Systems
 			var systemRef, talkgroupRef uint
-			if system, ok := api.Controller.Systems.GetSystemById(pref.SystemId); ok {
-				systemRef = system.SystemRef
-				if talkgroup, ok := system.Talkgroups.GetTalkgroupById(pref.TalkgroupId); ok {
-					talkgroupRef = talkgroup.TalkgroupRef
-				}
+			system, sysOk := api.Controller.Systems.GetSystemById(pref.SystemId)
+			if !sysOk {
+				continue
+			}
+			systemRef = system.SystemRef
+			talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(pref.TalkgroupId)
+			if !tgOk {
+				continue
+			}
+			talkgroupRef = talkgroup.TalkgroupRef
+			if !api.Controller.userHasAccess(client.User, &Call{
+				System:    system,
+				Talkgroup: talkgroup,
+			}) {
+				continue
 			}
 
 			prefMap := map[string]any{
@@ -8839,7 +8852,7 @@ func isSystemAlertVisibleToUser(alertType string, systemAdmin bool) bool {
 		return true
 	}
 	switch alertType {
-	case "manual", "no_audio", "no_audio_received", "api_key_no_audio":
+	case "manual", "no_audio", "no_audio_received", "api_key_no_audio", "tone_detection_issue":
 		return true
 	default:
 		return false
@@ -8873,20 +8886,19 @@ func (api *Api) SystemAlertsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Filter alerts based on user role.
-		// All users see manual alerts and no-audio health alerts (view only).
-		// System admins see all health monitoring alerts.
+		// Filter by alert type and user/group system/talkgroup access.
 		filteredAlerts := []*SystemAlert{}
 		for _, alert := range alerts {
-			if isSystemAlertVisibleToUser(alert.AlertType, client.User.SystemAdmin) {
+			if api.Controller.userHasSystemAlertAccess(client.User, alert) {
 				filteredAlerts = append(filteredAlerts, alert)
 			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"alerts":        filteredAlerts,
-			"isSystemAdmin": client.User.SystemAdmin,
+			"alerts":              filteredAlerts,
+			"isSystemAdmin":       client.User.SystemAdmin,
+			"canViewSystemAlerts": api.Controller.userCanViewSystemAlerts(client.User),
 		})
 
 	case http.MethodPost:

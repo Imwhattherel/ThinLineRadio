@@ -98,6 +98,31 @@ $background-color: rgb(30, 30, 30);
     overflow: auto;
   }
 
+  &.search > div {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+
+    > div {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      margin: 0 auto;
+      max-width: 1200px;
+      width: 100%;
+    }
+  }
+
+  &.search rdio-scanner-search {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
   .mat-toolbar {
     background-color: inherit;
     box-shadow: 0 4px 8px rgba($background-color, 0.8);

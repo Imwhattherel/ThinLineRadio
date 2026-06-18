@@ -8,9 +8,9 @@
  *
  * Replaces the legacy `main.component`. Renders the hybrid Thinline skin
  * (LCD chassis around the live now-playing strip; clean dashboard for the
- * tab content) and hosts the seven primary tabs:
+ * tab content) and hosts the six primary tabs:
  *
- *     Current · Archive · Channels · Alerts · Transcripts · Stats · Settings
+ *     Transmissions · Channels · Alerts · Transcripts · Stats · Settings
  *
  * Wires all the same business behaviour as the legacy main view (auth,
  * livefeed transport, subscription/checkout, audio playback/replay, call
@@ -57,14 +57,16 @@ import { findUnitLabelForSrc, resolveUnitLabelForSrc as resolveUnitLabel } from 
 
 /** Stable index per board tab. Order MUST match the template's `<mat-tab>` list. */
 const TAB = {
-    Current: 0,
-    Archive: 1,
-    Channels: 2,
-    Alerts: 3,
-    Transcripts: 4,
-    Stats: 5,
-    Settings: 6,
+    Transmissions: 0,
+    Channels: 1,
+    Alerts: 2,
+    Transcripts: 3,
+    Stats: 4,
+    Settings: 5,
 } as const;
+
+/** Sub-view inside the Transmissions tab. */
+type TransmissionsPanelMode = 'recent' | 'search';
 
 @Component({
     selector: 'rdio-scanner-console',
@@ -167,7 +169,9 @@ export class RdioScannerConsoleComponent implements OnChanges, OnDestroy, OnInit
     // TAB / CONFIG
     // ────────────────────────────────────────────────────────────────────────
 
-    boardTabIndex: number = TAB.Current;
+    boardTabIndex: number = TAB.Transmissions;
+    /** Recent (last hour) vs archive search within the Transmissions tab. */
+    transmissionsPanelMode: TransmissionsPanelMode = 'recent';
     config: RdioScannerConfig | undefined;
     map: RdioScannerLivefeedMap = {};
 
@@ -276,7 +280,7 @@ export class RdioScannerConsoleComponent implements OnChanges, OnDestroy, OnInit
 
     /** Settings is always the last tab; its index shifts when transcription tabs hide. */
     get settingsBoardTabIndex(): number {
-        return this.isTranscriptionEnabled ? TAB.Settings : TAB.Alerts;
+        return this.isTranscriptionEnabled ? TAB.Settings : TAB.Channels + 1;
     }
 
     get showScanningAnimation(): boolean {
@@ -481,7 +485,10 @@ export class RdioScannerConsoleComponent implements OnChanges, OnDestroy, OnInit
         this.applyBoardTab(index, true);
     }
 
-    showSearchPanel(): void  { this.beepThenTab(TAB.Archive,  true); }
+    showSearchPanel(): void {
+        this.transmissionsPanelMode = 'search';
+        this.beepThenTab(TAB.Transmissions, true);
+    }
     showSelectPanel(): void  { this.beepThenTab(TAB.Channels, false); }
     showSettingsPanel(): void{ this.beepThenTab(this.settingsBoardTabIndex, false); }
 
@@ -500,27 +507,40 @@ export class RdioScannerConsoleComponent implements OnChanges, OnDestroy, OnInit
 
     openArchiveSearch(): void { this.showSearchPanel(); }
 
-    private beepThenTab(idx: number, refreshArchive: boolean): void {
+    setTransmissionsPanelMode(mode: TransmissionsPanelMode): void {
+        if (this.transmissionsPanelMode === mode) {
+            return;
+        }
+        if (mode === 'recent') {
+            this.rdioScannerService.stopPlaybackMode();
+        }
+        this.transmissionsPanelMode = mode;
+        if (mode === 'search') {
+            setTimeout(() => this.archiveSearch?.searchCalls(), 0);
+        }
+    }
+
+    private beepThenTab(idx: number, refreshArchiveSearch: boolean): void {
         if (!this.config) return;
         if (this.auth) { this.authFocus(); return; }
         this.rdioScannerService.beep();
-        this.applyBoardTab(idx, refreshArchive);
+        this.applyBoardTab(idx, refreshArchiveSearch);
     }
 
     private applyBoardTab(index: number, refreshArchiveSearch: boolean): void {
         const prev = this.boardTabIndex;
-        if (prev === TAB.Archive && index !== TAB.Archive) {
+        if (prev === TAB.Transmissions && index !== TAB.Transmissions) {
             this.rdioScannerService.stopPlaybackMode();
         }
         this.boardTabIndex = index;
-        if (refreshArchiveSearch && index === TAB.Archive) {
+        if (refreshArchiveSearch && index === TAB.Transmissions && this.transmissionsPanelMode === 'search') {
             setTimeout(() => this.archiveSearch?.searchCalls(), 0);
         }
         this.syncPageScrollMode();
     }
 
     /**
-     * Archive and Channels use the fitted tab viewport: panels stretch to
+     * Transmissions and Channels use the fitted tab viewport: panels stretch to
      * fill the tab body (see `.tab-panel--fill` in console.component.scss).
      * Other tabs keep the same viewport-locked layout.
      */

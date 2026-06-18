@@ -406,6 +406,64 @@ func (u *User) HasAccess(call *Call) bool {
 	return false
 }
 
+// HasAnySystemAccess reports whether the user is allowed to access at least one system.
+func (u *User) HasAnySystemAccess() bool {
+	if u == nil {
+		return false
+	}
+	if u.systemsData == nil {
+		return true
+	}
+	switch v := u.systemsData.(type) {
+	case string:
+		return strings.TrimSpace(v) == "" || v == "*"
+	case []any:
+		return len(v) > 0
+	default:
+		return true
+	}
+}
+
+// HasSystemScopeAccess reports whether the user may access the given system (any talkgroup on that system).
+func (u *User) HasSystemScopeAccess(systemRef uint) bool {
+	if u == nil || systemRef == 0 {
+		return false
+	}
+	if u.systemsData == nil {
+		return true
+	}
+	switch v := u.systemsData.(type) {
+	case string:
+		return strings.TrimSpace(v) == "" || v == "*"
+	case []any:
+		for _, scope := range v {
+			scopeMap, ok := scope.(map[string]any)
+			if !ok {
+				continue
+			}
+			idVal, ok := scopeMap["id"]
+			if !ok {
+				continue
+			}
+			var ref uint
+			switch id := idVal.(type) {
+			case float64:
+				ref = uint(id)
+			case string:
+				if parsed, err := strconv.ParseUint(id, 10, 32); err == nil {
+					ref = uint(parsed)
+				}
+			}
+			if ref == systemRef {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
+}
+
 func (u *User) PinExpired() bool {
 	if u == nil || u.PinExpiresAt == 0 {
 		return false

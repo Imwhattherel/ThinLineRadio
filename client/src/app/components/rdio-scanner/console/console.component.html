@@ -214,89 +214,119 @@
                        [selectedIndex]="boardTabIndex"
                        (selectedIndexChange)="onBoardIndexChange($event)">
 
-            <!-- ─── CURRENT ─── -->
+            <!-- ─── TRANSMISSIONS (recent + archive search) ─── -->
             <mat-tab>
                 <ng-template mat-tab-label>
                     <span class="tab-label tab-label--live">
-                        <span class="live-dot" aria-hidden="true"></span>
-                        Current
+                        <span class="live-dot" *ngIf="livefeedOnline" aria-hidden="true"></span>
+                        Transmissions
                     </span>
                 </ng-template>
-                <div class="tab-panel tab-panel--fill current-panel">
-                    <div class="panel-title">Call history (last hour)</div>
-                    <div class="board-split">
-                        <div class="board-main">
-                            <div class="history-table-wrap">
-                                <table class="dispatch-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Time</th>
-                                            <th>System</th>
-                                            <th>Talkgroup</th>
-                                            <th>TGID</th>
-                                            <th>Source</th>
-                                            <th>MHz</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr *ngFor="let c of callsLastHour"
-                                            (click)="onHistoryRowClick(c)"
-                                            [class.row-playing]="isRowPlaying(c)"
-                                            [class.row-selected]="selectedHistoryCall?.id === c?.id"
-                                            [style.background-color]="getTransmissionHistoryBackgroundColor(c)">
-                                            <td>{{ c?.dateTime | date:timeFormat }}</td>
-                                            <td>{{ c?.systemData?.label || c?.system }}</td>
-                                            <td>{{ c?.talkgroupData?.label || c?.talkgroup || '0' }}</td>
-                                            <td>{{ displayTgidForCall(c) }}</td>
-                                            <td class="src-cell">{{ displayUnitForCall(c) }}</td>
-                                            <td>{{ formatFrequencyMHz(c?.frequency) || '—' }}</td>
-                                        </tr>
-                                        <tr *ngIf="callsLastHour.length === 0" class="empty-row">
-                                            <td colspan="6">No calls in the last hour</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                <div class="tab-panel tab-panel--fill calls-panel">
+                    <div class="calls-mode-bar">
+                        <div class="calls-mode-toggle" role="tablist" aria-label="Transmissions view">
+                            <button type="button" class="calls-mode-btn"
+                                    role="tab"
+                                    [attr.aria-selected]="transmissionsPanelMode === 'recent'"
+                                    [class.active]="transmissionsPanelMode === 'recent'"
+                                    (click)="setTransmissionsPanelMode('recent')">
+                                Recent
+                            </button>
+                            <button type="button" class="calls-mode-btn"
+                                    role="tab"
+                                    [attr.aria-selected]="transmissionsPanelMode === 'search'"
+                                    [class.active]="transmissionsPanelMode === 'search'"
+                                    (click)="setTransmissionsPanelMode('search')">
+                                Search
+                            </button>
+                        </div>
+                        <span class="calls-mode-hint" *ngIf="transmissionsPanelMode === 'recent'">
+                            Last hour · updates live
+                        </span>
+                        <span class="calls-mode-hint" *ngIf="transmissionsPanelMode === 'search'">
+                            Scroll the results list — more load in batches as you reach the bottom
+                        </span>
+                    </div>
+
+                    <div class="calls-recent" *ngIf="transmissionsPanelMode === 'recent'">
+                        <div class="board-split">
+                            <div class="board-main">
+                                <div class="history-table-wrap">
+                                    <table class="dispatch-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Time</th>
+                                                <th>System</th>
+                                                <th>Talkgroup</th>
+                                                <th>TGID</th>
+                                                <th>Source</th>
+                                                <th>MHz</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr *ngFor="let c of callsLastHour"
+                                                (click)="onHistoryRowClick(c)"
+                                                [class.row-playing]="isRowPlaying(c)"
+                                                [class.row-selected]="selectedHistoryCall?.id === c?.id"
+                                                [style.background-color]="getTransmissionHistoryBackgroundColor(c)">
+                                                <td>{{ c?.dateTime | date:timeFormat }}</td>
+                                                <td>{{ c?.systemData?.label || c?.system }}</td>
+                                                <td>{{ c?.talkgroupData?.label || c?.talkgroup || '0' }}</td>
+                                                <td>{{ displayTgidForCall(c) }}</td>
+                                                <td class="src-cell">{{ displayUnitForCall(c) }}</td>
+                                                <td>{{ formatFrequencyMHz(c?.frequency) || '—' }}</td>
+                                            </tr>
+                                            <tr *ngIf="callsLastHour.length === 0" class="empty-row">
+                                                <td colspan="6">No calls in the last hour</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <ng-container *ngIf="detailCall as dc">
+                                    <div class="detail-card" *ngIf="showDetailFieldGrid(dc)">
+                                        <div class="detail-header">Transmission detail</div>
+                                        <div class="detail-grid">
+                                            <div class="dk">System</div>
+                                            <div class="dv">{{ dc.systemData?.label || dc.system }}</div>
+                                            <div class="dk">Talkgroup</div>
+                                            <div class="dv">{{ dc.talkgroupData?.label || dc.talkgroup }}</div>
+                                            <div class="dk">TGID</div>
+                                            <div class="dv">{{ displayTgidForCall(dc) }}</div>
+                                            <div class="dk">Tag</div>
+                                            <div class="dv">{{ dc.talkgroupData?.tag || dc.tagData?.label || '—' }}</div>
+                                            <div class="dk">Unit</div>
+                                            <div class="dv">{{ displayUnitForCall(dc) }}</div>
+                                            <div class="dk">Frequency</div>
+                                            <div class="dv">{{ formatFrequencyMHz(dc.frequency) || '—' }}</div>
+                                            <div class="dk">Site</div>
+                                            <div class="dv">{{ dc.siteData?.label || (dc.site ? 'Site ' + dc.site : '—') }}</div>
+                                            <div class="dk">Time</div>
+                                            <div class="dv">{{ dc.dateTime | date:timeFormat }}</div>
+                                            <div class="dk">Call ID</div>
+                                            <div class="dv">{{ dc.id }}</div>
+                                        </div>
+                                        <div class="transcript-block" *ngIf="isTranscriptionEnabled && dc.transcript">
+                                            <div class="dk">Transcript</div>
+                                            <p class="transcript-body"
+                                               [innerHTML]="renderTranscript(dc.transcript, dc.transcriptAnnotations)"></p>
+                                        </div>
+                                    </div>
+                                </ng-container>
                             </div>
 
-                            <ng-container *ngIf="detailCall as dc">
-                                <div class="detail-card" *ngIf="showDetailFieldGrid(dc)">
-                                    <div class="detail-header">Transmission detail</div>
-                                    <div class="detail-grid">
-                                        <div class="dk">System</div>
-                                        <div class="dv">{{ dc.systemData?.label || dc.system }}</div>
-                                        <div class="dk">Talkgroup</div>
-                                        <div class="dv">{{ dc.talkgroupData?.label || dc.talkgroup }}</div>
-                                        <div class="dk">TGID</div>
-                                        <div class="dv">{{ displayTgidForCall(dc) }}</div>
-                                        <div class="dk">Tag</div>
-                                        <div class="dv">{{ dc.talkgroupData?.tag || dc.tagData?.label || '—' }}</div>
-                                        <div class="dk">Unit</div>
-                                        <div class="dv">{{ displayUnitForCall(dc) }}</div>
-                                        <div class="dk">Frequency</div>
-                                        <div class="dv">{{ formatFrequencyMHz(dc.frequency) || '—' }}</div>
-                                        <div class="dk">Site</div>
-                                        <div class="dv">{{ dc.siteData?.label || (dc.site ? 'Site ' + dc.site : '—') }}</div>
-                                        <div class="dk">Time</div>
-                                        <div class="dv">{{ dc.dateTime | date:timeFormat }}</div>
-                                        <div class="dk">Call ID</div>
-                                        <div class="dv">{{ dc.id }}</div>
-                                    </div>
-                                    <div class="transcript-block" *ngIf="isTranscriptionEnabled && dc.transcript">
-                                        <div class="dk">Transcript</div>
-                                        <p class="transcript-body"
-                                           [innerHTML]="renderTranscript(dc.transcript, dc.transcriptAnnotations)"></p>
-                                    </div>
-                                </div>
-                            </ng-container>
+                            <aside class="alerts-rail" *ngIf="isTranscriptionEnabled">
+                                <rdio-scanner-alerts
+                                    [boardEmbed]="true"
+                                    [boardEmbedMax]="12"
+                                    (openFullAlerts)="showAlertsPanel()">
+                                </rdio-scanner-alerts>
+                            </aside>
                         </div>
+                    </div>
 
-                        <aside class="alerts-rail" *ngIf="isTranscriptionEnabled">
-                            <rdio-scanner-alerts
-                                [boardEmbed]="true"
-                                [boardEmbedMax]="12"
-                                (openFullAlerts)="showAlertsPanel()">
-                            </rdio-scanner-alerts>
-                        </aside>
+                    <div class="calls-search" *ngIf="transmissionsPanelMode === 'search'">
+                        <rdio-scanner-search #archiveSearch></rdio-scanner-search>
                     </div>
 
                     <!-- Inline auth overlay (legacy unlock-code only) -->
@@ -318,13 +348,6 @@
                             </form>
                         </div>
                     </div>
-                </div>
-            </mat-tab>
-
-            <!-- ─── ARCHIVE ─── -->
-            <mat-tab label="Archive">
-                <div class="tab-panel tab-panel--fill archive-panel">
-                    <rdio-scanner-search #archiveSearch></rdio-scanner-search>
                 </div>
             </mat-tab>
 

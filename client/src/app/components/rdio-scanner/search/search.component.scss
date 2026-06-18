@@ -8,8 +8,14 @@
   width: 100%;
 }
 
-/* Console Archive tab — stretch filters + results to fill the tab body. */
-:host-context(.archive-panel) {
+/* Console Transmissions → Search — filters stay fixed; results scroll in a fixed viewport. */
+:host-context(.archive-panel),
+:host-context(.calls-search),
+:host-context(.panel.search) {
+  --archive-row-height: 32px;
+  --archive-visible-rows: 20;
+  --archive-viewport-height: calc(var(--archive-row-height) * (var(--archive-visible-rows) + 1));
+
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -19,11 +25,62 @@
   .rdio-search-shell {
     flex: 1 1 auto;
     min-height: 0;
-    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .rdio-filters {
     flex-shrink: 0;
+  }
+
+  .rdio-list {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .results-panel-head,
+  .archive-toolbar {
+    flex-shrink: 0;
+    position: relative;
+    z-index: 8;
+  }
+
+  .archive-scroll-frame {
+    position: relative;
+    flex: 0 0 auto;
+    height: var(--archive-viewport-height, auto);
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .archive-table-scroll {
+    width: 100%;
+    height: var(--archive-viewport-height);
+    max-height: var(--archive-viewport-height);
+    overflow-y: auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .archive-results-table .mat-mdc-header-row,
+  .archive-results-table .mat-mdc-header-cell {
+    background: #1e1e1e !important;
+    z-index: 6;
+  }
+
+  .archive-results-table .mat-mdc-header-row {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+}
+
+/* Classic sidenav search — fill panel height; results list scrolls internally. */
+:host-context(.panel.search) {
+  .rdio-search-shell {
+    height: 100%;
   }
 
   .rdio-list {
@@ -33,15 +90,16 @@
     flex-direction: column;
   }
 
-  .results-panel-head,
-  .paginator.archive-toolbar {
-    flex-shrink: 0;
+  .archive-scroll-frame {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 160px;
   }
 
   .archive-table-scroll {
-    flex: 1 1 auto;
+    height: 100%;
+    max-height: none;
     min-height: 0;
-    overflow-y: auto;
   }
 }
 
@@ -347,6 +405,12 @@
     padding: 8px 10px;
     background: #1a1a1a;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    position: relative;
+    z-index: 8;
   }
 
   .results-panel-title {
@@ -357,6 +421,54 @@
     color: rgba(255, 255, 255, 0.45);
   }
 
+  .results-panel-count {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: var(--tlr-font-numeric, monospace);
+  }
+
+  .archive-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 6px 10px;
+    background: #181818;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    position: relative;
+    z-index: 8;
+  }
+
+  .load-more-sentinel {
+    flex: 0 0 1px;
+    height: 1px;
+    width: 100%;
+    pointer-events: none;
+  }
+
+  .load-more-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+
+    &--hint {
+      color: rgba(255, 255, 255, 0.42);
+      font-size: 11px;
+      padding: 8px 12px;
+    }
+  }
+
+  .empty-results {
+    padding: 24px 16px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 13px;
+  }
+
   ::ng-deep mat-progress-bar {
     height: 2px;
 
@@ -365,7 +477,13 @@
     }
   }
 
-  /* Full-width table: scroll horizontally on small screens so columns are not crushed. */
+  /* Full-width table inside a bounded scroll viewport. */
+  .archive-scroll-frame {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+  }
+
   .archive-table-scroll {
     width: 100%;
     overflow-x: auto;
@@ -393,7 +511,7 @@
     }
 
     .mat-mdc-header-cell {
-      background: #1e1e1e;
+      background: #1e1e1e !important;
       border-bottom: 1px solid rgba(255, 255, 255, 0.12);
       color: rgba(255, 255, 255, 0.62);
       font-weight: 700;
@@ -405,6 +523,11 @@
       display: flex;
       padding-top: 6px;
       padding-bottom: 6px;
+
+      &.mat-mdc-table-sticky {
+        background: #1e1e1e !important;
+        z-index: 6;
+      }
 
       > span {
         display: block;
@@ -435,7 +558,7 @@
     }
 
     .mat-mdc-header-row {
-      background: #1e1e1e;
+      background: #1e1e1e !important;
       min-height: 32px;             // match filter button height
       height: 32px;
       align-items: stretch;
@@ -941,14 +1064,20 @@ input[matInput][style*='opacity: 0'] {
     .mat-mdc-header-row,
     .mat-mdc-header-cell,
     .archive-results-table .mat-header-cell {
-      background: transparent;
+      background: var(--tlr-board-surface, #14171b) !important;
       border-bottom-color: var(--tlr-header-divider);
       color: var(--tlr-text-secondary);
       font-family: var(--tlr-font-primary);
+      box-shadow: 0 1px 0 var(--tlr-header-divider);
 
       > span {
         color: var(--tlr-text-secondary);
       }
+    }
+
+    .mat-mdc-header-cell.mat-mdc-table-sticky {
+      background: var(--tlr-board-surface, #14171b) !important;
+      z-index: 6;
     }
 
     .mat-mdc-cell,

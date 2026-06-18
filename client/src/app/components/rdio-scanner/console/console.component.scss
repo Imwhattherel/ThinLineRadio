@@ -7,7 +7,7 @@
  *     content (history, archive search, channel select, settings) renders
  *     at sane proportions on a 1280+ desktop.
  *   • Single, fixed-height chrome row for header (40px) and transport (56px).
- *   • Tab bodies fill the viewport; Archive / Channels stretch their panels
+ *   • Tab bodies fill the viewport; Transmissions / Channels stretch their panels
  *     to the bottom of the tab (`.tab-panel--fill`).
  *   • Tokens come from styles/_thinline-tokens.scss — no hard-coded gradients.
  */
@@ -626,8 +626,10 @@
     .mat-mdc-tab-body.mat-mdc-tab-body-active { flex: 1 1 0%; min-height: 0; }
     .mat-mdc-tab-body-content {
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
       height: 100%;
-      overflow: auto;
+      overflow: hidden;
     }
   }
 
@@ -663,11 +665,14 @@
   min-height: 0;
   box-sizing: border-box;
 
-  /* Stretch to the full tab body when content is shorter than the viewport. */
+  /* Stretch to the full tab body; inner panels own vertical scroll. */
   &--fill {
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
   }
 }
 
@@ -683,8 +688,86 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * CURRENT tab — history table + detail card + optional alerts rail
+ * CALLS tab — recent history + archive search + optional alerts rail
  * ──────────────────────────────────────────────────────────────────────── */
+
+.calls-panel {
+  position: relative;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calls-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.calls-mode-toggle {
+  display: inline-flex;
+  padding: 3px;
+  background: #181c21;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  gap: 2px;
+}
+
+.calls-mode-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--tlr-nav-inactive);
+  font-family: var(--tlr-font-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  &.active {
+    background: rgba(57, 255, 20, 0.1);
+    color: var(--tlr-primary);
+    box-shadow: inset 0 0 0 1px rgba(57, 255, 20, 0.25);
+  }
+}
+
+.calls-mode-hint {
+  font-family: var(--tlr-font-primary);
+  font-size: 11px;
+  color: var(--tlr-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.calls-recent,
+.calls-search {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.calls-search {
+  rdio-scanner-search {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+}
 
 .panel-title {
   font-family: var(--tlr-font-primary);
@@ -851,19 +934,6 @@
       font-size: 12px;
       white-space: pre-wrap;
     }
-  }
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
- * ARCHIVE tab — fill the tab body; results card grows, table scrolls inside.
- * ──────────────────────────────────────────────────────────────────────── */
-
-.archive-panel {
-  rdio-scanner-search {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
   }
 }
 

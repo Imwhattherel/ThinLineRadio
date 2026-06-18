@@ -22,7 +22,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Subject, Subscription, firstValueFrom } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { RdioScannerAlert, RdioScannerCall, RdioScannerService, RdioScannerTranscript } from '../rdio-scanner';
-import { AlertsService } from './alerts.service';
+import { AlertsService, RdioScannerSystemAlert } from './alerts.service';
 import { AlertSoundService } from '../alert-sound.service';
 import { SettingsService } from '../settings/settings.service';
 import { TranscriptAnnotation, renderAnnotatedTranscript } from '../transcript-utils';
@@ -32,6 +32,8 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 
 /** Main board hosts separate tabs; each instance uses one mode. */
 export type RdioScannerAlertsPanelMode = 'alertsAndPreferences' | 'transcripts' | 'stats';
+
+export type RdioScannerAlertsViewMode = 'mine' | 'system' | 'all';
 
 interface IncidentSubcategory {
     label: string;
@@ -81,6 +83,12 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     @Input() includeTranscriptsTab = false;
 
     alerts: RdioScannerAlert[] = [];
+    systemAlerts: RdioScannerSystemAlert[] = [];
+    loadingSystemAlerts = false;
+    canViewSystemAlerts = false;
+    isSystemAdmin = false;
+    alertsViewMode: RdioScannerAlertsViewMode = 'mine';
+    alertSearch = '';
     transcripts: RdioScannerTranscript[] = [];
     loading = false;
     loadingTranscripts = false;
@@ -195,6 +203,9 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
 
             if (this.boardEmbed || this.panelMode !== 'stats') {
                 this.loadAlerts(true);
+                if (!this.boardEmbed && this.panelMode === 'alertsAndPreferences') {
+                    this.loadSystemAlerts();
+                }
             }
             if (!this.boardEmbed && this.panelMode === 'transcripts') {
                 this.loadTranscripts();
@@ -654,6 +665,7 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         this.activeTab = tab;
         if (tab === 'alerts') {
             this.loadAlerts(false);
+            this.loadSystemAlerts();
         }
         if (tab === 'transcripts') {
             this.loadTranscripts();
@@ -786,6 +798,186 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         });
     }
 
+    loadSystemAlerts(): void {
+        this.pin = this.rdioScannerService.readPin();
+        if (!this.pin) {
+            this.systemAlerts = [];
+            this.canViewSystemAlerts = false;
+            this.loadingSystemAlerts = false;
+            return;
+        }
+
+        this.loadingSystemAlerts = true;
+        this.alertsService.getSystemAlerts(this.limit, this.pin).subscribe({
+            next: (res) => {
+                this.systemAlerts = res?.alerts || [];
+                this.isSystemAdmin = !!res?.isSystemAdmin;
+                this.canViewSystemAlerts = !!res?.canViewSystemAlerts;
+                if (!this.canViewSystemAlerts && this.alertsViewMode !== 'mine') {
+                    this.alertsViewMode = 'mine';
+                }
+                this.loadingSystemAlerts = false;
+            },
+            error: (error) => {
+                console.error('Error loading system alerts:', error);
+                this.systemAlerts = [];
+                this.loadingSystemAlerts = false;
+            },
+        });
+    }
+
+    setAlertsViewMode(mode: RdioScannerAlertsViewMode): void {
+        if (mode !== 'mine' && !this.canViewSystemAlerts) {
+            return;
+        }
+        this.alertsViewMode = mode;
+        if (mode === 'system' || mode === 'all') {
+            this.loadSystemAlerts();
+        }
+        if (mode === 'mine' || mode === 'all') {
+            this.loadAlerts(false);
+        }
+    }
+
+    refreshAlertsTab(): void {
+        if (this.alertsViewMode === 'system') {
+            this.loadSystemAlerts();
+            return;
+        }
+        if (this.alertsViewMode === 'all') {
+            this.loadAlerts(true);
+            this.loadSystemAlerts();
+            return;
+        }
+        this.loadAlerts(true);
+    }
+
+    get showMyAlertsSection(): boolean {
+        return this.alertsViewMode === 'mine' || this.alertsViewMode === 'all';
+    }
+
+    get showSystemAlertsSection(): boolean {
+        return this.canViewSystemAlerts && (this.alertsViewMode === 'system' || this.alertsViewMode === 'all');
+    }
+
+    get alertsTabLoading(): boolean {
+        if (this.alertsViewMode === 'system') {
+            return this.loadingSystemAlerts;
+        }
+        if (this.alertsViewMode === 'all') {
+            return this.loading || this.loadingSystemAlerts;
+        }
+        return this.loading;
+    }
+
+    get hasActiveAlertSearch(): boolean {
+        return !!this.alertSearch.trim();
+    }
+
+    get filteredAlertGroups(): Array<{ key: string; alerts: RdioScannerAlert[]; latestTimestamp: number; groupType: 'tone' | 'channel' }> {
+        const q = this.alertSearch.trim().toLowerCase();
+        if (!q) {
+            return this.allAlertGroups;
+        }
+        return this.allAlertGroups
+            .map((group) => {
+                const groupKeyMatches = group.key.toLowerCase().includes(q);
+                const alerts = groupKeyMatches
+                    ? group.alerts
+                    : group.alerts.filter((alert) => this.alertMatchesSearch(alert, q));
+                if (alerts.length === 0) {
+                    return null;
+                }
+                return {
+                    ...group,
+                    alerts,
+                    latestTimestamp: Math.max(...alerts.map((a) => a.createdAt || 0)),
+                };
+            })
+            .filter((group): group is NonNullable<typeof group> => group != null)
+            .sort((a, b) => b.latestTimestamp - a.latestTimestamp);
+    }
+
+    get filteredSystemAlerts(): RdioScannerSystemAlert[] {
+        const q = this.alertSearch.trim().toLowerCase();
+        if (!q) {
+            return this.systemAlerts;
+        }
+        return this.systemAlerts.filter((alert) => this.systemAlertMatchesSearch(alert, q));
+    }
+
+    clearAlertSearch(): void {
+        this.alertSearch = '';
+    }
+
+    private alertMatchesSearch(alert: RdioScannerAlert, q: string): boolean {
+        const parts: string[] = [
+            this.getAlertTypeLabel(alert),
+            alert.alertType || '',
+            alert.systemLabel || '',
+            alert.talkgroupLabel || '',
+            alert.talkgroupName || '',
+            alert.transcript || '',
+            alert.transcriptSnippet || '',
+            alert.alertSummary || '',
+            alert.matchedToneSetName || '',
+            String(alert.callId ?? ''),
+            String(alert.systemId ?? ''),
+            String(alert.talkgroupId ?? ''),
+            ...(alert.matchedToneSetNames || []),
+            ...this.getKeywordsMatched(alert),
+        ];
+        return parts.filter(Boolean).join(' ').toLowerCase().includes(q);
+    }
+
+    private systemAlertMatchesSearch(alert: RdioScannerSystemAlert, q: string): boolean {
+        const parts = [
+            alert.title,
+            alert.message,
+            alert.alertType,
+            alert.severity,
+            this.getSystemAlertTypeLabel(alert),
+        ];
+        return parts.filter(Boolean).join(' ').toLowerCase().includes(q);
+    }
+
+    getSystemAlertTypeLabel(alert: RdioScannerSystemAlert): string {
+        switch (alert.alertType) {
+            case 'no_audio':
+            case 'no_audio_received':
+                return 'No audio';
+            case 'api_key_no_audio':
+                return 'API key';
+            case 'tone_detection_issue':
+                return 'Tone detection';
+            case 'transcription_failure':
+                return 'Transcription';
+            case 'manual':
+                return 'Notice';
+            default:
+                return 'System';
+        }
+    }
+
+    getSystemAlertSeverityIcon(severity: string): string {
+        switch (severity) {
+            case 'critical':
+                return '🚨';
+            case 'error':
+                return '❌';
+            case 'warning':
+                return '⚠️';
+            case 'info':
+                return 'ℹ️';
+            default:
+                return '🔔';
+        }
+    }
+
+    trackBySystemAlertId(_index: number, alert: RdioScannerSystemAlert): number {
+        return alert.id;
+    }
+
     loadTranscripts(opts?: { silent?: boolean }): void {
         this.pin = this.rdioScannerService.readPin();
         if (!this.pin) {
@@ -852,14 +1044,47 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     }
 
     getKeywordsMatched(alert: RdioScannerAlert): string[] {
-        if (!alert.keywordsMatched) {
+        if (alert.keywordsMatched == null || alert.keywordsMatched === '') {
             return [];
         }
-        try {
-            return JSON.parse(alert.keywordsMatched);
-        } catch {
+
+        let raw: unknown;
+        if (typeof alert.keywordsMatched === 'string') {
+            const trimmed = alert.keywordsMatched.trim();
+            if (!trimmed || trimmed === '[]') {
+                return [];
+            }
+            try {
+                raw = JSON.parse(trimmed);
+            } catch {
+                raw = trimmed.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
+            }
+        } else {
+            raw = alert.keywordsMatched;
+        }
+
+        if (!Array.isArray(raw)) {
             return [];
         }
+
+        const seen = new Set<string>();
+        const unique: string[] = [];
+        for (const entry of raw) {
+            if (typeof entry !== 'string') {
+                continue;
+            }
+            const keyword = entry.trim();
+            if (!keyword) {
+                continue;
+            }
+            const key = keyword.toLowerCase();
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            unique.push(keyword);
+        }
+        return unique;
     }
 
     formatTimestamp(timestamp: number): string {
@@ -923,7 +1148,7 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         // Group channel alerts by channel (system + talkgroup)
         const channelGrouped = new Map<string, RdioScannerAlert[]>();
         
-        this.alerts.filter(alert => alert.alertType === 'keyword').forEach(alert => {
+        this.alerts.filter(alert => alert.alertType === 'keyword' || alert.alertType === 'transcript').forEach(alert => {
             // Create channel key from system + talkgroup
             const channelKey = `${alert.systemLabel || `System ${alert.systemId}`} / ${alert.talkgroupLabel || alert.talkgroupName || `Talkgroup ${alert.talkgroupId}`}`;
             

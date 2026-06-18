@@ -46,7 +46,6 @@ import { AlertsService } from './alerts/alerts.service';
 import { TagColorService } from './tag-color.service';
 import { FavoritesService } from './favorites.service';
 import { ScanListsService } from './scan-lists.service';
-import { RdioScannerSelectLegacyComponent } from './select/select-legacy.component';
 import { AlertSoundService } from './alert-sound.service';
 import { RdioScannerAdminService } from './admin/admin.service';
 import { TranscriptReviewService } from './transcript-review/transcript-review.service';
@@ -63,7 +62,6 @@ import { RdioScannerLcdBottomNavComponent } from './skin/lcd-bottom-nav.componen
         RdioScannerMainLegacyComponent,
         RdioScannerSearchComponent,
         RdioScannerSelectComponent,
-        RdioScannerSelectLegacyComponent,
         SystemsVisibilityDialogComponent,
         ScanListEditDialogComponent,
         RdioScannerSupportComponent,

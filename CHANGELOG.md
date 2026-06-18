@@ -1,5 +1,31 @@
 # Change log
 
+## Version 26.06.18 - Released June 18, 2026
+
+### Added
+
+- **System alerts — scoped visibility, player UI, and per-user push**
+  - Authenticated users can view system health alerts via `GET /api/system-alerts` when they have access to the related system, talkgroup, or API key scope (same rules as call access and user group access). Manual notices remain visible to all authenticated users. Dismiss still requires system admin.
+  - Player Alerts tab: **My alerts**, **System**, and **All** views when the user has system alert access; client-side search across my alerts and system alerts.
+  - **Call/transcript alerts** (tone, keyword, transcript) in `GET /api/alerts` are filtered by user and group system/talkgroup access, matching the transcripts list and live call feed; push and preference paths honor the same scope.
+  - System admins continue to receive push for all health alerts.
+  - Admin → Users: assign **Push: System No Audio** and **Push: API Key No Audio** per user for targeted push without full system admin access.
+
+- **Player — Console Transmissions tab**
+  - **Recent** and **Search** modes in the console Transmissions panel; archive search is embedded without leaving the console layout.
+
+### Changed
+
+- **Player — Compact alerts and transcripts UI**
+  - Slimmer alert group expansion headers; keyword matches shown as separate outline tags (deduplicated, no glow).
+  - Transcript alerts grouped with tone/keyword alerts in the Alerts tab.
+
+- **Player — Search playback**
+  - Archive search auto-advances through result lists in console and classic layouts; playback list stays in sync when infinite scroll loads more calls.
+
+- **Player — Layout cleanup**
+  - Removed duplicate legacy select component; console and classic player layouts mount exclusively (no dual DOM).
+
 ### Fixed
 
 - **Admin — CSV talkgroup import**
@@ -10,16 +36,11 @@
 - **Call ingestion — auto-populate talkgroups**
   - Resolves group and tag ids from the database by label before linking new talkgroups, fixing FK errors when in-memory group ids (e.g. 4, 5) no longer exist in the DB.
 
----
+- **Push notifications — Android pager alerts**
+  - Suppresses conflicting FCM notification sound when a pager alert uses Telecom ringtone / auto-answer (iOS already omitted sound for pager alerts).
 
-## Version 26.06.18 - Unreleased
-
-### Added
-
-- **System alerts — broader visibility and per-user push**
-  - All authenticated users can view system no-audio and API key/uploader no-audio health alerts via `GET /api/system-alerts` (read-only; dismiss still requires system admin).
-  - System admins continue to receive push for all health alerts.
-  - Admin → Users: assign **Push: System No Audio** and **Push: API Key No Audio** per user for targeted push without full system admin access.
+- **Alerts — keyword merge**
+  - Case-insensitive deduplication when merging matched keywords on alert records.
 
 ---
 

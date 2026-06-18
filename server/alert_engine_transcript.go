@@ -55,6 +55,9 @@ func (engine *AlertEngine) TriggerTranscriptAlerts(call *Call) {
 	for _, userId := range userIds {
 		pref := engine.controller.PreferencesCache.GetPreference(userId, call.System.Id, call.Talkgroup.Id)
 		if pref != nil && pref.AlertEnabled {
+			if !engine.controller.userEligibleForTalkgroupAlert(userId, call) {
+				continue
+			}
 			eligibleUsers = append(eligibleUsers, userId)
 			go engine.sendAlertNotification(userId, call.Id, "transcript")
 		}

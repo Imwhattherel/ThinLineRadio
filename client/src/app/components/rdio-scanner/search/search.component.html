@@ -2,7 +2,7 @@
     <mat-card class="rdio-filters">
         <div class="filters-panel-head">
             <span class="filters-panel-title">Search filters</span>
-            <span class="filters-panel-hint">Set sort, date, and scopes — results load in the table below.</span>
+            <span class="filters-panel-hint">Set sort, date, and scopes — results scroll below and load as you go.</span>
         </div>
         <form autocomplete="off" [formGroup]="form">
             <div class="filter-row filter-row--single">
@@ -148,7 +148,7 @@
 
     <mat-card class="rdio-list">
         <!-- Loading Overlay -->
-        <div class="loading-overlay" *ngIf="resultsPending">
+        <div class="loading-overlay" *ngIf="showInitialSearchOverlay">
             <div class="loading-content">
                 <mat-spinner [diameter]="40"></mat-spinner>
                 <span>Loading calls...</span>
@@ -157,21 +157,21 @@
 
         <div class="results-panel-head">
             <span class="results-panel-title">Results</span>
+            <span class="results-panel-count" *ngIf="loadedResultCount > 0">
+                {{ loadedResultCount }}{{ hasMoreResults ? '+' : '' }} loaded
+            </span>
         </div>
 
-        <div class="paginator archive-toolbar">
+        <div class="archive-toolbar">
             <div class="archive-download-wrap" matTooltip="Download mode — tap rows to save audio">
                 <mat-slide-toggle #downloadMode class="archive-download-toggle" color="primary" labelPosition="before">
                     <mat-icon>save_alt</mat-icon>
                 </mat-slide-toggle>
             </div>
-            <mat-paginator class="archive-paginator" [disabled]="livefeedPlayback || resultsPending" [length]="paginatorCount"
-                [hidePageSize]="true" [pageSize]="results.value.length" [showFirstLastButtons]="true"
-                (page)="onPageChange()">
-            </mat-paginator>
         </div>
 
-        <div class="archive-table-scroll">
+        <div class="archive-scroll-frame">
+        <div class="archive-table-scroll" #archiveScroll (scroll)="onArchiveScroll($event)">
         <mat-table class="archive-results-table" [dataSource]="results">
             <ng-container matColumnDef="control">
                 <mat-header-cell *matHeaderCellDef></mat-header-cell>
@@ -249,15 +249,32 @@
                     <span>{{ row?.talkgroupData?.name }}</span>
                 </mat-cell>
             </ng-container>
-            <mat-header-row *matHeaderRowDef="archiveTableColumns">
+            <mat-header-row *matHeaderRowDef="archiveTableColumns; sticky: true">
             </mat-header-row>
             <mat-row *matRowDef="let row; columns: archiveTableColumns"
-                [class.archive-row-playing]="row && call?.id === row?.id"
-                [style.background-color]="row ? getTransmissionHistoryBackgroundColor(row) : 'transparent'">
+                [class.archive-row-playing]="call?.id === row?.id"
+                [style.background-color]="getTransmissionHistoryBackgroundColor(row)">
             </mat-row>
         </mat-table>
+
+        <div #loadMoreSentinel class="load-more-sentinel"
+            *ngIf="hasMoreResults && loadedResultCount > 0 && !showInitialSearchOverlay"></div>
+
+        <div class="load-more-row" *ngIf="showLoadMoreIndicator">
+            <mat-spinner diameter="22"></mat-spinner>
+            <span>Loading more…</span>
         </div>
-        <mat-progress-bar color="primary" [mode]="resultsPending ? 'query' : 'determinate'">
+
+        <div class="load-more-row load-more-row--hint" *ngIf="!showLoadMoreIndicator && hasMoreResults && loadedResultCount > 0">
+            <span>Scroll for more</span>
+        </div>
+
+        <div class="empty-results" *ngIf="!showInitialSearchOverlay && !resultsPending && loadedResultCount === 0">
+            <span>No transmissions match these filters.</span>
+        </div>
+        </div>
+        </div>
+        <mat-progress-bar color="primary" [mode]="showInitialSearchOverlay ? 'query' : 'determinate'">
         </mat-progress-bar>
     </mat-card>
 </div>
