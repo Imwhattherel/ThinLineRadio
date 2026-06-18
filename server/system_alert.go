@@ -89,19 +89,26 @@ func (controller *Controller) CreateSystemAlert(alertType, severity, title, mess
 	return nil
 }
 
-// SendSystemAlertNotification sends a push notification for system alerts
-// Manual alerts (sent by admins) go to all verified users
-// Health monitoring alerts only go to system admins
+// SendSystemAlertNotification sends a push notification for system alerts.
+// Manual alerts go to all verified users.
+// System no-audio alerts go to system admins and users with pushSystemNoAudioAlerts.
+// API key no-audio alerts go to system admins and users with pushApiKeyNoAudioAlerts.
+// Other health alerts go to system admins only.
 func (controller *Controller) SendSystemAlertNotification(title, message, alertType, severity, dataJSON string) {
 	var query string
 	var targetDescription string
 
-	if alertType == "manual" {
-		// Manual alerts: send to ALL verified users
+	switch alertType {
+	case "manual":
 		query = `SELECT "userId" FROM "users" WHERE "verified" = true`
 		targetDescription = "verified users"
-	} else {
-		// Health/monitoring alerts: only send to system admins
+	case "no_audio", "no_audio_received":
+		query = `SELECT "userId" FROM "users" WHERE "systemAdmin" = true OR "pushSystemNoAudioAlerts" = true`
+		targetDescription = "system no-audio alert recipients"
+	case "api_key_no_audio":
+		query = `SELECT "userId" FROM "users" WHERE "systemAdmin" = true OR "pushApiKeyNoAudioAlerts" = true`
+		targetDescription = "API key no-audio alert recipients"
+	default:
 		query = `SELECT "userId" FROM "users" WHERE "systemAdmin" = true`
 		targetDescription = "system admins"
 	}

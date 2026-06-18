@@ -261,7 +261,12 @@ Query params:
 ---
 
 ### `GET /api/system-alerts`
-Return system health alerts visible to the authenticated user (requires system-admin role).
+Return system alerts visible to the authenticated user.
+
+- All users: `manual`, `no_audio`, `no_audio_received`, `api_key_no_audio`
+- System admins: all alert types
+
+Push notifications for no-audio alerts go to system admins plus users with `pushSystemNoAudioAlerts` or `pushApiKeyNoAudioAlerts` (set in Admin → Users).
 
 ---
 

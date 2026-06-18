@@ -390,6 +390,17 @@ func (controller *Controller) sendNotificationBatch(playerIDs []string, title, s
 		data["talkgroupLabel"] = talkgroupLabel
 	}
 
+	// Android pager alerts use Telecom ringtone / auto-answer for audio. A
+	// simultaneous FCM notification sound fights for focus and gets cut off
+	// (iOS already suppresses sound when pager_alert is set).
+	effectiveSound := sound
+	if platform == "android" {
+		if pa, ok := data["pager_alert"].(string); ok && pa == "true" {
+			effectiveSound = ""
+			controller.Logs.LogEvent(LogLevelInfo, "push notification: Android pager alert — suppressing FCM notification sound")
+		}
+	}
+
 	// Build request payload
 	payload := map[string]interface{}{
 		"player_ids": playerIDs,
@@ -397,7 +408,7 @@ func (controller *Controller) sendNotificationBatch(playerIDs []string, title, s
 		"message":    message,
 		"data":       data,
 		"platform":   platform,
-		"sound":      sound,
+		"sound":      effectiveSound,
 	}
 
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("push notification: sending batch with %d FCM token(s) to relay server", len(playerIDs)))

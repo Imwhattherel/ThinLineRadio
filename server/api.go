@@ -8833,7 +8833,20 @@ func (api *Api) ValidateAccessCodeHandler(w http.ResponseWriter, r *http.Request
 	api.exitWithError(w, http.StatusBadRequest, "Invalid or expired code")
 }
 
-// SystemAlertsHandler handles GET/POST for system alerts (system admins only)
+// isSystemAlertVisibleToUser returns whether an alert should appear in GET /api/system-alerts for the user.
+func isSystemAlertVisibleToUser(alertType string, systemAdmin bool) bool {
+	if systemAdmin {
+		return true
+	}
+	switch alertType {
+	case "manual", "no_audio", "no_audio_received", "api_key_no_audio":
+		return true
+	default:
+		return false
+	}
+}
+
+// SystemAlertsHandler handles GET/POST for system alerts
 func (api *Api) SystemAlertsHandler(w http.ResponseWriter, r *http.Request) {
 	client := api.getClient(r)
 	if client == nil || client.User == nil {
@@ -8860,19 +8873,13 @@ func (api *Api) SystemAlertsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Filter alerts based on user role
-		// Regular users only see "manual" alerts (sent by system admins)
-		// System admins see all alerts (including health monitoring)
+		// Filter alerts based on user role.
+		// All users see manual alerts and no-audio health alerts (view only).
+		// System admins see all health monitoring alerts.
 		filteredAlerts := []*SystemAlert{}
 		for _, alert := range alerts {
-			if client.User.SystemAdmin {
-				// System admins see all alerts
+			if isSystemAlertVisibleToUser(alert.AlertType, client.User.SystemAdmin) {
 				filteredAlerts = append(filteredAlerts, alert)
-			} else {
-				// Regular users only see manual alerts
-				if alert.AlertType == "manual" {
-					filteredAlerts = append(filteredAlerts, alert)
-				}
 			}
 		}
 

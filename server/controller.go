@@ -320,17 +320,91 @@ func (controller *Controller) EmitConfig() {
 	go controller.Admin.BroadcastConfig()
 }
 
+// resolveGroupIdForLabel returns the database groupId for a label, refreshing from the DB
+// when the in-memory id is stale (e.g. after duplicate-label cleanup or config import).
+func (controller *Controller) resolveGroupIdForLabel(groupLabel string) (uint64, error) {
+	groupLabel = strings.TrimSpace(groupLabel)
+	if groupLabel == "" {
+		groupLabel = "Unknown"
+	}
+
+	if group, ok := controller.Groups.GetGroupByLabel(groupLabel); ok && group.Id > 0 {
+		var dbLabel string
+		query := fmt.Sprintf(`SELECT "label" FROM "groups" WHERE "groupId" = %d`, group.Id)
+		if err := controller.Database.Sql.QueryRow(query).Scan(&dbLabel); err == nil && dbLabel == group.Label {
+			return group.Id, nil
+		}
+	}
+
+	if err := controller.Groups.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if group, ok := controller.Groups.GetGroupByLabel(groupLabel); ok && group.Id > 0 {
+		return group.Id, nil
+	}
+
+	group := &Group{Label: groupLabel}
+	controller.Groups.List = append(controller.Groups.List, group)
+	if err := controller.Groups.Write(controller.Database); err != nil {
+		return 0, err
+	}
+	if err := controller.Groups.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if group, ok := controller.Groups.GetGroupByLabel(groupLabel); ok {
+		controller.SyncConfigToFile()
+		return group.Id, nil
+	}
+	return 0, fmt.Errorf("unable to resolve group %s", groupLabel)
+}
+
+// resolveTagIdForLabel returns the database tagId for a label, refreshing from the DB
+// when the in-memory id is stale.
+func (controller *Controller) resolveTagIdForLabel(tagLabel string) (uint64, error) {
+	tagLabel = strings.TrimSpace(tagLabel)
+	if tagLabel == "" {
+		tagLabel = "Untagged"
+	}
+
+	if tag, ok := controller.Tags.GetTagByLabel(tagLabel); ok && tag.Id > 0 {
+		var dbLabel string
+		query := fmt.Sprintf(`SELECT "label" FROM "tags" WHERE "tagId" = %d`, tag.Id)
+		if err := controller.Database.Sql.QueryRow(query).Scan(&dbLabel); err == nil && dbLabel == tag.Label {
+			return tag.Id, nil
+		}
+	}
+
+	if err := controller.Tags.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if tag, ok := controller.Tags.GetTagByLabel(tagLabel); ok && tag.Id > 0 {
+		return tag.Id, nil
+	}
+
+	tag := &Tag{Label: tagLabel}
+	controller.Tags.List = append(controller.Tags.List, tag)
+	if err := controller.Tags.Write(controller.Database); err != nil {
+		return 0, err
+	}
+	if err := controller.Tags.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if tag, ok := controller.Tags.GetTagByLabel(tagLabel); ok {
+		controller.SyncConfigToFile()
+		return tag.Id, nil
+	}
+	return 0, fmt.Errorf("unable to resolve tag %s", tagLabel)
+}
+
 func (controller *Controller) IngestCall(call *Call) {
 	var (
 		err         error
-		group       *Group
 		groupId     uint64
 		groupLabel  string
 		ok          bool
 		populated   bool
 		system      *System
 		systemId    uint
-		tag         *Tag
 		tagId       uint64
 		tagLabel    string
 		talkgroup   *Talkgroup
@@ -474,57 +548,19 @@ func (controller *Controller) IngestCall(call *Call) {
 				tagLabel = call.Meta.TalkgroupTag
 			}
 
-			if group, ok = controller.Groups.GetGroupByLabel(groupLabel); !ok {
-				group = &Group{Label: groupLabel}
-
-				controller.Groups.List = append(controller.Groups.List, group)
-
-				if err = controller.Groups.Write(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				if err = controller.Groups.Read(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				// Sync config to file if enabled
-				controller.SyncConfigToFile()
-
-				if group, ok = controller.Groups.GetGroupByLabel(groupLabel); !ok {
-					logError(fmt.Errorf("unable to get group %s", groupLabel))
-					return
-				}
+			if resolvedGroupId, resolveErr := controller.resolveGroupIdForLabel(groupLabel); resolveErr != nil {
+				logError(resolveErr)
+				return
+			} else {
+				groupId = resolvedGroupId
 			}
 
-			groupId = group.Id
-
-			if tag, ok = controller.Tags.GetTagByLabel(tagLabel); !ok {
-				tag = &Tag{Label: tagLabel}
-
-				controller.Tags.List = append(controller.Tags.List, tag)
-
-				if err = controller.Tags.Write(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				if err = controller.Tags.Read(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				// Sync config to file if enabled
-				controller.SyncConfigToFile()
-
-				if tag, ok = controller.Tags.GetTagByLabel(tagLabel); !ok {
-					logError(fmt.Errorf("unable to get tag %s", tagLabel))
-					return
-				}
+			if resolvedTagId, resolveErr := controller.resolveTagIdForLabel(tagLabel); resolveErr != nil {
+				logError(resolveErr)
+				return
+			} else {
+				tagId = resolvedTagId
 			}
-
-			tagId = tag.Id
 
 			// Find the max Order value among existing talkgroups to assign new talkgroup at the end
 			maxOrder := uint(0)

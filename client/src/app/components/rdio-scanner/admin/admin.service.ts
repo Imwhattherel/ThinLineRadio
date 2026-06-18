@@ -115,6 +115,8 @@ export interface User {
     pin?: string;
     verified?: boolean;
     systemAdmin?: boolean;
+    pushSystemNoAudioAlerts?: boolean;
+    pushApiKeyNoAudioAlerts?: boolean;
     forcePasswordReset?: boolean;
     isGroupAdmin?: boolean;
     userGroupId?: number;
@@ -1581,6 +1583,8 @@ export class RdioScannerAdminService implements OnDestroy {
             pin: this.ngFormBuilder.control(user?.pin || ''),
             verified: this.ngFormBuilder.control(user?.verified),
             systemAdmin: this.ngFormBuilder.control(user?.systemAdmin),
+            pushSystemNoAudioAlerts: this.ngFormBuilder.control(user?.pushSystemNoAudioAlerts),
+            pushApiKeyNoAudioAlerts: this.ngFormBuilder.control(user?.pushApiKeyNoAudioAlerts),
             forcePasswordReset: this.ngFormBuilder.control(user?.forcePasswordReset),
             isGroupAdmin: this.ngFormBuilder.control(user?.isGroupAdmin),
             userGroupId: this.ngFormBuilder.control(user?.userGroupId),

@@ -440,12 +440,18 @@
                                 <mat-checkbox formControlName="systemAdmin">System Admin</mat-checkbox>
                                 <mat-checkbox formControlName="forcePasswordReset">Require Password Reset on Next Login</mat-checkbox>
                             </div>
+                            <div class="form-row checkboxes-row">
+                                <mat-checkbox formControlName="pushSystemNoAudioAlerts">Push: System No Audio</mat-checkbox>
+                                <mat-checkbox formControlName="pushApiKeyNoAudioAlerts">Push: API Key No Audio</mat-checkbox>
+                            </div>
                             <div class="hint-row">
                                 <span class="muted" *ngIf="editingUser && !editingUser.userGroupId">
                                     User must be in a group to be a group admin.
                                 </span>
                                 <span class="muted">
-                                    System admins receive health notifications and can send system alerts.
+                                    System admins receive all health alert push notifications and can send system alerts.
+                                    Assign push checkboxes to notify specific users for no-audio alerts without full admin access.
+                                    All users can view system and API key no-audio alerts in the app.
                                 </span>
                             </div>
 

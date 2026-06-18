@@ -59,6 +59,8 @@ export interface User {
     userGroupId?: number;
     isGroupAdmin?: boolean;
     systemAdmin?: boolean;
+    pushSystemNoAudioAlerts?: boolean;
+    pushApiKeyNoAudioAlerts?: boolean;
     forcePasswordReset?: boolean;
     stripeCustomerId: string;
     stripeSubscriptionId: string;
@@ -143,6 +145,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             userGroupId: [0],
             isGroupAdmin: [false],
             systemAdmin: [false],
+            pushSystemNoAudioAlerts: [false],
+            pushApiKeyNoAudioAlerts: [false],
             forcePasswordReset: [false],
             stripeCustomerId: [''],
             stripeSubscriptionId: [''],
@@ -189,6 +193,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
                 userGroupId: user.userGroupId || 0,
                 isGroupAdmin: user.isGroupAdmin || false,
                 systemAdmin: user.systemAdmin || false,
+                pushSystemNoAudioAlerts: user.pushSystemNoAudioAlerts || false,
+                pushApiKeyNoAudioAlerts: user.pushApiKeyNoAudioAlerts || false,
                 forcePasswordReset: user.forcePasswordReset || false,
                 stripeCustomerId: user.stripeCustomerId || '',
                 stripeSubscriptionId: user.stripeSubscriptionId || '',
@@ -622,6 +628,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             userGroupId: user.userGroupId || 0,
             isGroupAdmin: user.isGroupAdmin || false,
             systemAdmin: user.systemAdmin || false,
+            pushSystemNoAudioAlerts: user.pushSystemNoAudioAlerts || false,
+            pushApiKeyNoAudioAlerts: user.pushApiKeyNoAudioAlerts || false,
             forcePasswordReset: user.forcePasswordReset || false,
             stripeCustomerId: user.stripeCustomerId || '',
             stripeSubscriptionId: user.stripeSubscriptionId || '',
@@ -735,6 +743,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             userGroupId: parseNonNegativeInt(formValue.userGroupId),
             isGroupAdmin: !!formValue.isGroupAdmin,
             systemAdmin: !!formValue.systemAdmin,
+            pushSystemNoAudioAlerts: !!formValue.pushSystemNoAudioAlerts,
+            pushApiKeyNoAudioAlerts: !!formValue.pushApiKeyNoAudioAlerts,
             forcePasswordReset: !!formValue.forcePasswordReset,
             stripeCustomerId: (formValue.stripeCustomerId ?? '').toString().trim(),
             stripeSubscriptionId: (formValue.stripeSubscriptionId ?? '').toString().trim(),

@@ -334,26 +334,27 @@ func (tags *Tags) Write(db *Database) error {
 
 	for _, tag := range tags.List {
 		var count uint
-		var existingId uint64
+		var existingByLabel uint64
+		matchedByLabel := false
 
-		if tag.Id > 0 {
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "tags" WHERE "tagId" = %d`, tag.Id)
-			if err = tx.QueryRow(query).Scan(&count); err != nil {
-				break
+		// Label is authoritative — bind to the existing row when the label is already in the DB.
+		// This prevents unique-label violations when the client assigns a provisional id that
+		// does not match the real row (common during CSV talkgroup import).
+		query = fmt.Sprintf(`SELECT "tagId" FROM "tags" WHERE "label" = '%s' LIMIT 1`, escapeQuotes(tag.Label))
+		err = tx.QueryRow(query).Scan(&existingByLabel)
+		if err == nil {
+			tag.Id = existingByLabel
+			count = 1
+			matchedByLabel = true
+		} else if err == sql.ErrNoRows {
+			if tag.Id > 0 {
+				query = fmt.Sprintf(`SELECT COUNT(*) FROM "tags" WHERE "tagId" = %d`, tag.Id)
+				if err = tx.QueryRow(query).Scan(&count); err != nil {
+					break
+				}
 			}
 		} else {
-			// Check if a tag with this label already exists (to prevent duplicates)
-			query = fmt.Sprintf(`SELECT "tagId" FROM "tags" WHERE "label" = '%s' LIMIT 1`, escapeQuotes(tag.Label))
-			err = tx.QueryRow(query).Scan(&existingId)
-			if err != nil && err != sql.ErrNoRows {
-				// Real error (not just "no rows")
-				break
-			}
-			if existingId > 0 {
-				// Tag with this label already exists, update the in-memory tag's ID
-				tag.Id = existingId
-				count = 1
-			}
+			break
 		}
 
 		if count == 0 {
@@ -379,6 +380,11 @@ func (tags *Tags) Write(db *Database) error {
 						tag.Id = uint64(id)
 					}
 				}
+			}
+		} else if matchedByLabel {
+			query = fmt.Sprintf(`UPDATE "tags" SET "order" = %d, "color" = '%s' WHERE "tagId" = %d`, tag.Order, escapeQuotes(tag.Color), tag.Id)
+			if _, err = tx.Exec(query); err != nil {
+				break
 			}
 		} else {
 			query = fmt.Sprintf(`UPDATE "tags" SET "label" = '%s', "order" = %d, "color" = '%s' WHERE "tagId" = %d`, escapeQuotes(tag.Label), tag.Order, escapeQuotes(tag.Color), tag.Id)

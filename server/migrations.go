@@ -1714,6 +1714,20 @@ func migrateUserGroupsMaxUsers(db *Database) error {
 	return nil
 }
 
+// migrateUserAlertPushPreferences adds per-user push subscription flags for no-audio health alerts.
+func migrateUserAlertPushPreferences(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushSystemNoAudioAlerts" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushApiKeyNoAudioAlerts" boolean NOT NULL DEFAULT false`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note (user alert push preferences): %v", err)
+		}
+	}
+	return nil
+}
+
 // migrateSystemAdmins adds systemAdmin column to users table and creates systemAlerts table
 func migrateSystemAdmins(db *Database) error {
 	// Add systemAdmin column to users table

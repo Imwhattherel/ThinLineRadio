@@ -67,26 +67,24 @@ export class RdioScannerAdminImportTalkgroupsComponent implements OnInit {
         const talkgroups = system.talkgroups;
 
         this.csv.forEach((csv) => {
-            const group = csv[6];
-
-            if (!this.baseConfig.groups?.find((g) => g.label === group)) {
+            const group = (csv[6] ?? '').trim();
+            if (group && !this.baseConfig.groups?.find((g) => g.label === group)) {
                 const id = this.baseConfig.groups?.reduce((pv, cv) => typeof cv.id === 'number' && cv.id >= pv ? cv.id + 1 : pv, 1);
-
-                this.baseConfig.groups?.push({ id: id, label: group });
+                this.baseConfig.groups?.push({ id, label: group });
             }
 
-            const tag = csv[5];
-
-            if (!this.baseConfig.tags?.find((t) => t.label === tag)) {
+            const tag = (csv[5] ?? '').trim();
+            if (tag && !this.baseConfig.tags?.find((t) => t.label === tag)) {
                 const id = this.baseConfig.tags?.reduce((pv, cv) => typeof cv.id === 'number' && cv.id >= pv ? cv.id + 1 : pv, 1);
-
-                this.baseConfig.tags?.push({ id: id, label: tag });
+                this.baseConfig.tags?.push({ id, label: tag });
             }
         });
 
         this.csv.forEach((csv) => {
-            const groupId = this.baseConfig.groups?.find((g) => g.label === csv[6])?.id;
-            const tagId = this.baseConfig.tags?.find((t) => t.label === csv[5])?.id;
+            const groupLabel = (csv[6] ?? '').trim();
+            const tagLabel = (csv[5] ?? '').trim();
+            const groupId = this.baseConfig.groups?.find((g) => g.label === groupLabel)?.id;
+            const tagId = this.baseConfig.tags?.find((t) => t.label === tagLabel)?.id;
 
             talkgroups.push({
                 talkgroupRef: +csv[0],

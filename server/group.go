@@ -339,26 +339,25 @@ func (groups *Groups) Write(db *Database) error {
 
 	for _, group := range groups.List {
 		var count uint
-		var existingId uint64
+		var existingByLabel uint64
+		matchedByLabel := false
 
-		if group.Id > 0 {
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "groups" WHERE "groupId" = %d`, group.Id)
-			if err = tx.QueryRow(query).Scan(&count); err != nil {
-				break
+		// Label is authoritative — bind to the existing row when the label is already in the DB.
+		query = fmt.Sprintf(`SELECT "groupId" FROM "groups" WHERE "label" = '%s' LIMIT 1`, escapeQuotes(group.Label))
+		err = tx.QueryRow(query).Scan(&existingByLabel)
+		if err == nil {
+			group.Id = existingByLabel
+			count = 1
+			matchedByLabel = true
+		} else if err == sql.ErrNoRows {
+			if group.Id > 0 {
+				query = fmt.Sprintf(`SELECT COUNT(*) FROM "groups" WHERE "groupId" = %d`, group.Id)
+				if err = tx.QueryRow(query).Scan(&count); err != nil {
+					break
+				}
 			}
 		} else {
-			// Check if a group with this label already exists (to prevent duplicates)
-			query = fmt.Sprintf(`SELECT "groupId" FROM "groups" WHERE "label" = '%s' LIMIT 1`, escapeQuotes(group.Label))
-			err = tx.QueryRow(query).Scan(&existingId)
-			if err != nil && err != sql.ErrNoRows {
-				// Real error (not just "no rows")
-				break
-			}
-			if existingId > 0 {
-				// Group with this label already exists, update the in-memory group's ID
-				group.Id = existingId
-				count = 1
-			}
+			break
 		}
 
 		if count == 0 {
@@ -387,8 +386,13 @@ func (groups *Groups) Write(db *Database) error {
 				}
 			}
 
+		} else if matchedByLabel {
+			query = fmt.Sprintf(`UPDATE "groups" SET "order" = %d WHERE "groupId" = %d`, group.Order, group.Id)
+			if _, err = tx.Exec(query); err != nil {
+				break
+			}
 		} else {
-			query = fmt.Sprintf(`UPDATE "groups" SET "label" = '%s', "order" = %d where "groupId" = %d`, escapeQuotes(group.Label), group.Order, group.Id)
+			query = fmt.Sprintf(`UPDATE "groups" SET "label" = '%s', "order" = %d WHERE "groupId" = %d`, escapeQuotes(group.Label), group.Order, group.Id)
 			if _, err = tx.Exec(query); err != nil {
 				break
 			}

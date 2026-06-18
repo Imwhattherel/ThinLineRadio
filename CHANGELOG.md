@@ -1,5 +1,28 @@
 # Change log
 
+### Fixed
+
+- **Admin — CSV talkgroup import**
+  - Tags and groups are resolved by label before write, preventing duplicate-label errors when the client assigns provisional ids.
+  - Talkgroup `groupIds` and `tagId` values are remapped to real database ids after groups/tags save.
+  - Fixed talkgroup group-link cleanup comparing junction-table ids instead of group ids.
+
+- **Call ingestion — auto-populate talkgroups**
+  - Resolves group and tag ids from the database by label before linking new talkgroups, fixing FK errors when in-memory group ids (e.g. 4, 5) no longer exist in the DB.
+
+---
+
+## Version 26.06.18 - Unreleased
+
+### Added
+
+- **System alerts — broader visibility and per-user push**
+  - All authenticated users can view system no-audio and API key/uploader no-audio health alerts via `GET /api/system-alerts` (read-only; dismiss still requires system admin).
+  - System admins continue to receive push for all health alerts.
+  - Admin → Users: assign **Push: System No Audio** and **Push: API Key No Audio** per user for targeted push without full system admin access.
+
+---
+
 ## Version 26.06.17 - Released June 16, 2026
 
 ### Added

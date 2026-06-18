@@ -1428,6 +1428,158 @@ func (admin *Admin) ChangePassword(currentPassword any, newPassword string) erro
 	return nil
 }
 
+// remapTalkgroupRefsInSystemsPayload rewrites talkgroup groupIds and tagIds in a config
+// PUT payload so they match database IDs after groups/tags have been written. CSV and bulk
+// imports assign provisional client-side ids that may not match persisted rows when labels
+// already exist or sequence gaps are present.
+func remapTalkgroupRefsInSystemsPayload(systems []any, groupsPayload []any, tagsPayload []any, dbGroups *Groups, dbTags *Tags) {
+	if len(systems) == 0 {
+		return
+	}
+
+	groupRemap := map[uint64]uint64{}
+	for _, raw := range groupsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		group, ok := dbGroups.GetGroupByLabel(label)
+		if !ok {
+			continue
+		}
+		if clientId, ok := configPayloadUint64(m["id"]); ok && clientId > 0 {
+			groupRemap[clientId] = group.Id
+		}
+	}
+
+	tagRemap := map[uint64]uint64{}
+	for _, raw := range tagsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		tag, ok := dbTags.GetTagByLabel(label)
+		if !ok {
+			continue
+		}
+		if clientId, ok := configPayloadUint64(m["id"]); ok && clientId > 0 {
+			tagRemap[clientId] = tag.Id
+		}
+	}
+
+	for _, sysRaw := range systems {
+		sys, ok := sysRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		tgs, ok := sys["talkgroups"].([]any)
+		if !ok {
+			continue
+		}
+		for _, tgRaw := range tgs {
+			tg, ok := tgRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if ids, ok := tg["groupIds"].([]any); ok {
+				newIds := make([]any, 0, len(ids))
+				for _, idRaw := range ids {
+					clientId, ok := configPayloadUint64(idRaw)
+					if !ok || clientId == 0 {
+						continue
+					}
+					if dbId, ok := groupRemap[clientId]; ok {
+						newIds = append(newIds, float64(dbId))
+					} else if dbId, ok := configGroupIdByPayloadLabel(groupsPayload, clientId, dbGroups); ok {
+						newIds = append(newIds, float64(dbId))
+					} else if group, ok := dbGroups.GetGroupById(clientId); ok {
+						newIds = append(newIds, float64(group.Id))
+					}
+				}
+				tg["groupIds"] = newIds
+			}
+
+			if clientTagId, ok := configPayloadUint64(tg["tagId"]); ok && clientTagId > 0 {
+				if dbId, ok := tagRemap[clientTagId]; ok {
+					tg["tagId"] = float64(dbId)
+				} else if dbId, ok := configTagIdByPayloadLabel(tagsPayload, clientTagId, dbTags); ok {
+					tg["tagId"] = float64(dbId)
+				} else if tag, ok := dbTags.GetTagById(clientTagId); ok {
+					tg["tagId"] = float64(tag.Id)
+				}
+			}
+		}
+	}
+}
+
+func configPayloadUint64(v any) (uint64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return uint64(n), true
+	case int:
+		return uint64(n), true
+	case int64:
+		return uint64(n), true
+	case uint64:
+		return n, true
+	case uint:
+		return uint64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func configGroupIdByPayloadLabel(groupsPayload []any, clientId uint64, dbGroups *Groups) (uint64, bool) {
+	for _, raw := range groupsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, ok := configPayloadUint64(m["id"])
+		if !ok || id != clientId {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		if group, ok := dbGroups.GetGroupByLabel(label); ok {
+			return group.Id, true
+		}
+	}
+	return 0, false
+}
+
+func configTagIdByPayloadLabel(tagsPayload []any, clientId uint64, dbTags *Tags) (uint64, bool) {
+	for _, raw := range tagsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, ok := configPayloadUint64(m["id"])
+		if !ok || id != clientId {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		if tag, ok := dbTags.GetTagByLabel(label); ok {
+			return tag.Id, true
+		}
+	}
+	return 0, false
+}
+
 func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(r.Header.Get("upgrade"), "websocket") {
 		upgrader := websocket.Upgrader{
@@ -1498,6 +1650,9 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 			admin.Controller.Dirwatches.Stop()
 
+			var groupsPayload []any
+			var tagsPayload []any
+
 			switch v := m["apikeys"].(type) {
 			case []any:
 				admin.Controller.Apikeys.FromMap(v)
@@ -1542,6 +1697,7 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 			switch v := m["groups"].(type) {
 			case []any:
+				groupsPayload = v
 				admin.Controller.Groups.FromMap(v)
 				err = admin.Controller.Groups.Write(admin.Controller.Database)
 				if err != nil {
@@ -1633,6 +1789,7 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			// Talkgroups reference tags via foreign key, so tags must exist before talkgroups are inserted
 			switch v := m["tags"].(type) {
 			case []any:
+				tagsPayload = v
 				admin.Controller.Tags.FromMap(v)
 				err = admin.Controller.Tags.Write(admin.Controller.Database)
 				if err != nil {
@@ -1710,6 +1867,9 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 					}
+				}
+				if len(groupsPayload) > 0 || len(tagsPayload) > 0 {
+					remapTalkgroupRefsInSystemsPayload(v, groupsPayload, tagsPayload, admin.Controller.Groups, admin.Controller.Tags)
 				}
 				admin.Controller.Systems.FromMap(v)
 				err = admin.Controller.Systems.Write(admin.Controller.Database)
@@ -1987,6 +2147,8 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						existingUser.UserGroupId = actualUserGroupId
 						existingUser.IsGroupAdmin = getBoolFromMap(userMap, "isGroupAdmin", false)
 						existingUser.SystemAdmin = getBoolFromMap(userMap, "systemAdmin", false)
+						existingUser.PushSystemNoAudioAlerts = getBoolFromMap(userMap, "pushSystemNoAudioAlerts", false)
+						existingUser.PushApiKeyNoAudioAlerts = getBoolFromMap(userMap, "pushApiKeyNoAudioAlerts", false)
 						existingUser.ForcePasswordReset = getBoolFromMap(userMap, "forcePasswordReset", false)
 						existingUser.PinExpiresAt = getUint64FromMap(userMap, "pinExpiresAt")
 						existingUser.ConnectionLimit = uint(getFloat64FromMap(userMap, "connectionLimit"))
@@ -2032,8 +2194,10 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 							Verified:             getBoolFromMap(userMap, "verified", false),
 							UserGroupId:          actualUserGroupId,
 							IsGroupAdmin:         getBoolFromMap(userMap, "isGroupAdmin", false),
-							SystemAdmin:          getBoolFromMap(userMap, "systemAdmin", false),
-							ForcePasswordReset:   getBoolFromMap(userMap, "forcePasswordReset", false),
+							SystemAdmin:             getBoolFromMap(userMap, "systemAdmin", false),
+							PushSystemNoAudioAlerts: getBoolFromMap(userMap, "pushSystemNoAudioAlerts", false),
+							PushApiKeyNoAudioAlerts: getBoolFromMap(userMap, "pushApiKeyNoAudioAlerts", false),
+							ForcePasswordReset:      getBoolFromMap(userMap, "forcePasswordReset", false),
 							Pin:                  getStringFromMap(userMap, "pin"),
 							PinExpiresAt:         getUint64FromMap(userMap, "pinExpiresAt"),
 							ConnectionLimit:      uint(getFloat64FromMap(userMap, "connectionLimit")),
@@ -3035,6 +3199,8 @@ func (admin *Admin) GetConfig() map[string]any {
 			"userGroupId":          user.UserGroupId,
 			"isGroupAdmin":         user.IsGroupAdmin,
 			"systemAdmin":          user.SystemAdmin,
+			"pushSystemNoAudioAlerts": user.PushSystemNoAudioAlerts,
+			"pushApiKeyNoAudioAlerts": user.PushApiKeyNoAudioAlerts,
 			"forcePasswordReset":   user.ForcePasswordReset,
 			"stripeCustomerId":     user.StripeCustomerId,
 			"stripeSubscriptionId": user.StripeSubscriptionId,
@@ -6077,6 +6243,8 @@ func (admin *Admin) UsersListHandler(w http.ResponseWriter, r *http.Request) {
 			"userGroupId":              user.UserGroupId,
 			"isGroupAdmin":             user.IsGroupAdmin,
 			"systemAdmin":              user.SystemAdmin,
+			"pushSystemNoAudioAlerts": user.PushSystemNoAudioAlerts,
+			"pushApiKeyNoAudioAlerts": user.PushApiKeyNoAudioAlerts,
 			"forcePasswordReset":       user.ForcePasswordReset,
 			"stripeCustomerId":         user.StripeCustomerId,
 			"stripeSubscriptionId":     user.StripeSubscriptionId,
@@ -6294,8 +6462,10 @@ func (admin *Admin) UserUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		RegeneratePin        bool    `json:"regeneratePin"`
 		UserGroupId          *uint64 `json:"userGroupId"`
 		IsGroupAdmin         *bool   `json:"isGroupAdmin"`
-		SystemAdmin          *bool   `json:"systemAdmin"`
-		ForcePasswordReset   *bool   `json:"forcePasswordReset"`
+		SystemAdmin             *bool   `json:"systemAdmin"`
+		PushSystemNoAudioAlerts *bool   `json:"pushSystemNoAudioAlerts"`
+		PushApiKeyNoAudioAlerts *bool   `json:"pushApiKeyNoAudioAlerts"`
+		ForcePasswordReset      *bool   `json:"forcePasswordReset"`
 		StripeCustomerId     string  `json:"stripeCustomerId"`
 		StripeSubscriptionId string  `json:"stripeSubscriptionId"`
 		SubscriptionStatus   string  `json:"subscriptionStatus"`
@@ -6388,6 +6558,12 @@ func (admin *Admin) UserUpdateHandler(w http.ResponseWriter, r *http.Request) {
 
 	if request.SystemAdmin != nil {
 		user.SystemAdmin = *request.SystemAdmin
+	}
+	if request.PushSystemNoAudioAlerts != nil {
+		user.PushSystemNoAudioAlerts = *request.PushSystemNoAudioAlerts
+	}
+	if request.PushApiKeyNoAudioAlerts != nil {
+		user.PushApiKeyNoAudioAlerts = *request.PushApiKeyNoAudioAlerts
 	}
 	if request.ForcePasswordReset != nil {
 		user.ForcePasswordReset = *request.ForcePasswordReset
