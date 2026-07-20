@@ -9,6 +9,10 @@
   - Blank / unclassified natures are now treated the same: when **Drop UNKNOWN PROBLEM from map and geocoding** is enabled, they are not geocoded and do not receive a map pin.
   - Admin help text updated to mention blank natures.
 
+- **Release packaging — require `webapp/index.html` before shipping binaries**
+  - `build-all.sh` no longer treats a partial `server/webapp` directory (JS/assets without `index.html`) as a successful client build.
+  - That gap produced binaries that answered **HTTP 404** on `/` while call-upload (mobile) still worked.
+
 ---
 
 ## Version 26.07.20 - Released July 19, 2026
