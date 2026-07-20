@@ -73,6 +73,8 @@ type Talkgroup struct {
 
 	// Days to retain calls; 0 = inherit system retention, then global pruneDays.
 	RetentionDays uint `json:"retentionDays"`
+
+	IncidentMapping IncidentMappingConfig `json:"incidentMapping"`
 }
 
 func NewTalkgroup() *Talkgroup {
@@ -228,6 +230,10 @@ func (talkgroup *Talkgroup) FromMap(m map[string]any) *Talkgroup {
 		talkgroup.RetentionDays = uint(v)
 	}
 
+	if v, ok := m["incidentMapping"].(map[string]any); ok {
+		applyIncidentMappingFromMap(&talkgroup.IncidentMapping, v)
+	}
+
 	return talkgroup
 }
 
@@ -290,6 +296,8 @@ func (talkgroup *Talkgroup) MarshalJSON() ([]byte, error) {
 	if talkgroup.RetentionDays > 0 {
 		m["retentionDays"] = talkgroup.RetentionDays
 	}
+
+	m["incidentMapping"] = incidentMappingToMap(talkgroup.IncidentMapping)
 
 	return json.Marshal(m)
 }

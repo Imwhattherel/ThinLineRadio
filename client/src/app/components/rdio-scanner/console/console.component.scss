@@ -6,10 +6,10 @@
  *     The rest of the surface is a clean dark dashboard so the dense tab
  *     content (history, archive search, channel select, settings) renders
  *     at sane proportions on a 1280+ desktop.
- *   • Single, fixed-height chrome row for header (40px) and transport (56px).
- *   • Tab bodies fill the viewport; Transmissions / Channels stretch their panels
- *     to the bottom of the tab (`.tab-panel--fill`).
- *   • Tokens come from styles/_thinline-tokens.scss — no hard-coded gradients.
+   *   • Three-column board: scanner (left) · tabs (center, fills height) · alerts (right).
+ *   • Tab bodies fill the viewport height beside the side rails.
+ *   • Fixed desktop layout at all window sizes — narrow viewports scroll horizontally
+ *     instead of stacking columns (split-screen, small laptops, etc.).
  */
 
 @import "../../../../styles/thinline-mixins";
@@ -21,23 +21,15 @@
   flex: 1 1 auto;
   height: 100%;
   width: 100%;
-  max-width: 1280px;            // centred, reads like a normal web page
-  margin-left: auto;            // centre on wide viewports (parent flex is row)
-  margin-right: auto;
-  min-width: 0;
+  /* 320 scanner + 272 alerts + ~560 min center + gaps/padding */
+  min-width: 1160px;
+  max-width: none;
   min-height: 0;
-  padding: 8px 24px;            // generous left + right gutters; tight vertical
+  padding: 8px 10px;
   user-select: none;
   color: var(--tlr-text);
   font-family: var(--tlr-font-primary);
-  background: transparent;      // chassis lives on the parent
-}
-
-@media (max-width: 900px) {
-  :host {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
+  background: transparent;
 }
 
 .console {
@@ -48,6 +40,7 @@
   gap: 8px;
   width: 100%;
   position: relative;
+  overflow: hidden;
 
   &.subscription-locked .board {
     opacity: 0.45;
@@ -68,31 +61,12 @@
   gap: 16px;
   height: 40px;
   padding: 0 8px;
-  position: relative;
-
-  /* Centered TLR mark — absolutely positioned so the surrounding flex layout
-     (brand on the left, actions on the right) stays anchored to the edges
-     regardless of the logo's width. */
-  .header-center-logo {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    height: 34px;
-    width: auto;
-    max-width: 120px;
-    object-fit: contain;
-    pointer-events: none;
-    user-select: none;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-  }
-
   .brand {
     display: flex;
     align-items: center;
     gap: 10px;
     min-width: 0;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
 
     .brand-logo {
       display: block;
@@ -115,12 +89,28 @@
       text-overflow: ellipsis;
     }
 
+    .brand-tlr-logo {
+      display: block;
+      height: 28px;
+      width: auto;
+      max-width: 72px;
+      object-fit: contain;
+      flex-shrink: 0;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+    }
+
     .brand-version {
       font-size: 10px;
       font-weight: 600;
       color: var(--tlr-text-secondary);
       letter-spacing: 0.04em;
+      white-space: nowrap;
     }
+  }
+
+  .header-ticker {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .header-actions {
@@ -154,7 +144,7 @@
     }
   }
 
-  /* Classic / view-toggle — neutral but clearly readable */
+  /* Ghost header button — neutral but clearly readable */
   .header-btn--ghost {
     background: rgba(255, 255, 255, 0.10);
     color: #ffffff;
@@ -200,148 +190,315 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * BOARD container — transport + LCD + tabs
+ * BOARD — three columns: scanner | tabs (center) | alerts
  * ──────────────────────────────────────────────────────────────────────── */
 
 .board {
   flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   position: relative;
 
   &.disabled { filter: grayscale(0.2); }
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- * TRANSPORT (56px) — single row, compact icon+label buttons + volume
- * ──────────────────────────────────────────────────────────────────────── */
-
-.transport {
-  flex: 0 0 auto;
+.board-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 56px;
-  padding: 6px 10px;
-  background: #1a1d22;
-  border: 1px solid var(--tlr-bezel-border);
-  border-radius: 6px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  overflow: hidden;
+}
 
-  .transport-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
+.board-center {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
 
-  .transport-volume {
-    flex: 0 0 240px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 100%;
-    padding-left: 12px;
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
+.scanner-column {
+  flex: 0 0 320px;
+  width: 320px;
+  min-width: 260px;
+  max-width: 340px;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
 
-    mat-icon {
-      font-size: 18px;
-      width: 18px;
-      height: 18px;
-      color: var(--tlr-text-secondary);
-    }
-
-    .vol-slider {
-      flex: 1 1 auto;
-      min-width: 0;
-      --mdc-slider-active-track-color: var(--tlr-primary);
-      --mdc-slider-inactive-track-color: rgba(57, 255, 20, 0.18);
-      --mdc-slider-handle-color: var(--tlr-primary);
-      --mdc-slider-hover-handle-color: var(--tlr-primary);
-      --mdc-slider-focus-handle-color: var(--tlr-primary);
-      --mdc-slider-label-container-color: var(--tlr-primary);
-      --mdc-slider-label-label-text-color: #0b1208;
-      --mat-mdc-slider-ripple-color: rgba(57, 255, 20, 0.32);
-
-      ::ng-deep .mat-mdc-slider { width: 100%; min-width: 0; margin: 0; }
-      ::ng-deep .mdc-slider__track--inactive { opacity: 1; }
-    }
-
-    .vol-val {
-      flex: 0 0 auto;
-      min-width: 36px;
-      text-align: right;
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--tlr-primary);
-      font-family: var(--tlr-font-numeric);
-    }
+  rdio-scanner-weather-widget {
+    flex: 0 0 auto;
+    min-height: 0;
   }
 }
 
-.t-btn {
-  display: inline-flex;
+.board-body--solo .scanner-column {
+  flex: 0 0 300px;
+  width: 300px;
+}
+
+.alerts-sidebar {
+  flex: 0 0 272px;
+  width: 272px;
+  min-width: 240px;
+  max-width: 300px;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #181c21;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+
+  rdio-scanner-alerts {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+}
+
+.scanner-controls {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px;
+  background: linear-gradient(
+    135deg,
+    #101218 0%,
+    #0a0b0e 38%,
+    #0c0d11 62%,
+    #07080a 100%
+  );
+  border: 1px solid var(--tlr-header-divider, rgba(255, 255, 255, 0.08));
+  border-radius: 14px 14px 12px 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.scanner-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.scanner-key-slot {
+  min-height: 0;
+  border-radius: 9px;
+  border: 0.8px solid rgba(176, 184, 196, 0.27);
+  background: #0a0b0e;
+  overflow: hidden;
+}
+
+/* Rubber hardware keys — parity with ThinlineRadio-Mobile ScannerKeycap */
+.scanner-key {
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  height: 44px;
-  min-width: 56px;
-  padding: 0 8px;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 5px;
-  color: rgba(255, 255, 255, 0.86);
+  width: 100%;
+  height: 100%;
+  min-height: 52px;
+  max-height: 56px;
+  padding: 4px 4px 5px;
+  border: 1px solid #1c222a;
+  border-radius: 7px;
+  background: linear-gradient(
+    180deg,
+    #2e343e 0%,
+    #181c22 42%,
+    #0e1116 100%
+  );
+  color: var(--tlr-key-label-neon, #8ed8ff);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  position: relative;
+  overflow: hidden;
   font-family: var(--tlr-font-primary);
+  box-shadow:
+    0 3px 0 0 rgba(0, 0, 0, 0.55),
+    0 4px 6px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.1s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+
+  /* Matte rubber top sheen — mobile uses faint diagonal strokes; CSS stripes
+     read as horizontal strikethrough on small keys, so keep this minimal. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      transparent 42%
+    );
+  }
+
+  &:hover {
+    background: linear-gradient(180deg, #343b46 0%, #1a1f27 45%, #10141a 100%);
+  }
+
+  &:active {
+    transform: translateY(2px);
+    background: linear-gradient(180deg, #151920 0%, #0a0c10 100%);
+    box-shadow:
+      0 1px 0 0 rgba(0, 0, 0, 0.55),
+      0 2px 4px rgba(0, 0, 0, 0.28);
+  }
+
+  &--latched {
+    border-color: rgba(57, 255, 20, 0.75);
+    background: linear-gradient(
+      180deg,
+      #283038 0%,
+      #121820 50%,
+      #0c1016 100%
+    );
+    box-shadow:
+      0 3px 0 0 rgba(0, 0, 0, 0.55),
+      0 4px 6px rgba(0, 0, 0, 0.35),
+      0 0 10px rgba(57, 255, 20, 0.12);
+  }
+}
+
+.scanner-key__led {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 40px;
+  height: 3.5px;
+  margin: 5px auto 5px;
+  border-radius: 2px;
+  flex-shrink: 0;
+
+  &--spacer {
+    visibility: hidden;
+    margin-bottom: 5px;
+  }
+
+  &--green {
+    background: var(--tlr-led-green-dim, #1a3320);
+  }
+
+  &--green.scanner-key__led--lit {
+    background: var(--tlr-led-green, #39ff14);
+    box-shadow: 0 0 8px rgba(57, 255, 20, 0.75);
+    margin-bottom: 8px;
+  }
+
+  &--red {
+    background: var(--tlr-led-red-dim, #331018);
+  }
+
+  &--red.scanner-key__led--lit {
+    background: var(--tlr-led-red, #ff3355);
+    box-shadow: 0 0 8px rgba(255, 51, 85, 0.75);
+    margin-bottom: 8px;
+  }
+}
+
+.scanner-key__label {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--tlr-key-label-neon, #8ed8ff);
+  text-shadow: 0 0 4px rgba(142, 216, 255, 0.35);
+}
+
+.scanner-key__pause-dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 2;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--tlr-led-red, #ff3355);
+  box-shadow: 0 0 6px rgba(255, 51, 85, 0.85);
+}
+
+.scanner-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
 
   mat-icon {
     font-size: 18px;
     width: 18px;
     height: 18px;
-    line-height: 1;
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--tlr-text-secondary);
+    flex-shrink: 0;
   }
 
-  span {
-    font-size: 9px;
+  .vol-slider {
+    flex: 1 1 auto;
+    min-width: 0;
+    --mdc-slider-active-track-color: var(--tlr-primary);
+    --mdc-slider-inactive-track-color: rgba(57, 255, 20, 0.18);
+    --mdc-slider-handle-color: var(--tlr-primary);
+    --mdc-slider-hover-handle-color: var(--tlr-primary);
+    --mdc-slider-focus-handle-color: var(--tlr-primary);
+    --mdc-slider-label-container-color: var(--tlr-primary);
+    --mdc-slider-label-label-text-color: #0b1208;
+    --mat-mdc-slider-ripple-color: rgba(57, 255, 20, 0.32);
+
+    ::ng-deep .mat-mdc-slider { width: 100%; min-width: 0; margin: 0; }
+    ::ng-deep .mdc-slider__track--inactive { opacity: 1; }
+  }
+
+  .vol-val {
+    flex: 0 0 auto;
+    min-width: 36px;
+    text-align: right;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    line-height: 1;
-    margin-top: 1px;
-  }
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.35);
-  }
-
-  &.active {
-    background: rgba(57, 255, 20, 0.10);
-    border-color: var(--tlr-primary);
     color: var(--tlr-primary);
-    mat-icon { color: var(--tlr-primary); }
-  }
-
-  &.warn:not(.active) {
-    border-color: rgba(255, 51, 85, 0.55);
-    color: #ff8a80;
-    mat-icon { color: #ff5252; }
-  }
-
-  &.t-btn--icon {
-    min-width: 44px;
-    padding: 0;
+    font-family: var(--tlr-font-numeric);
   }
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- * LCD LIVE STRIP — the only "skinned" surface (bezel + scanlines + glow)
- * ──────────────────────────────────────────────────────────────────────── */
+.lcd-strip--scanner {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Volume strip below hardware keypad */
 
 .lcd-strip {
   flex: 0 0 auto;
@@ -415,6 +572,14 @@
     color: #ffab40;
     font-weight: 700;
     text-shadow: 0 0 8px rgba(255, 171, 64, 0.5);
+
+    &.is-placeholder {
+      visibility: hidden;
+    }
+  }
+
+  .flag-pill.is-placeholder {
+    visibility: hidden;
   }
 
   .flag-pill {
@@ -434,10 +599,17 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 28px;
   padding: 4px 8px;
-  border: 1px dashed rgba(57, 255, 20, 0.35);
+  border: 1px dashed transparent;
   border-radius: 4px;
   font-size: 12px;
+  visibility: hidden;
+
+  &.is-active {
+    visibility: visible;
+    border-color: rgba(57, 255, 20, 0.35);
+  }
 
   .scan-label {
     font-weight: 800;
@@ -468,7 +640,48 @@
     background: rgba(0, 0, 0, 0.2);
     align-items: center;
   }
+}
 
+.scanner-column .lcd-now {
+  min-height: 0;
+
+  .now-grid {
+    min-height: 132px;
+  }
+
+  .now-transcript {
+    min-height: 56px;
+  }
+}
+
+.scanner-column .lcd-now .now-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+
+  .now-cell--tg {
+    grid-column: 1 / -1;
+    min-height: 38px;
+  }
+
+  .cell-v.hero {
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+    text-shadow:
+      0 0 10px rgba(126, 200, 232, 0.65),
+      0 0 16px rgba(126, 200, 232, 0.35);
+  }
+
+  &.now-grid--idle .cell-v.hero {
+    color: var(--tlr-text-secondary);
+    text-shadow: none;
+  }
+}
+
+.lcd-now {
   .now-cell {
     display: flex;
     flex-direction: column;
@@ -523,6 +736,15 @@
     background: rgba(0, 0, 0, 0.35);
     border-left: 3px solid var(--tlr-primary);
     border-radius: 0 4px 4px 0;
+    box-sizing: border-box;
+
+    &.is-empty {
+      border-left-color: rgba(255, 255, 255, 0.12);
+
+      .transcript-label {
+        opacity: 0.45;
+      }
+    }
 
     .transcript-label {
       display: block;
@@ -541,6 +763,13 @@
       line-height: 1.5;
       color: var(--tlr-text);
       white-space: pre-wrap;
+      min-height: 2.5em;
+      max-height: 4.5em;
+      overflow: hidden;
+
+      &.transcript-text--placeholder {
+        color: var(--tlr-text-secondary);
+      }
     }
   }
 }
@@ -550,8 +779,9 @@
  * ──────────────────────────────────────────────────────────────────────── */
 
 .board-tabs {
-  flex: 1 1 0%;
+  flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--tlr-board-surface, #14171b);
@@ -561,7 +791,7 @@
 
   ::ng-deep {
     .mat-mdc-tab-group {
-      flex: 1 1 0%;
+      flex: 1 1 auto;
       min-height: 0;
       display: flex;
       flex-direction: column;
@@ -613,7 +843,7 @@
       box-shadow: 0 0 8px rgba(57, 255, 20, 0.55);
     }
 
-    .mat-mdc-tab-body-wrapper { flex: 1 1 0%; min-height: 0; overflow: hidden; }
+    .mat-mdc-tab-body-wrapper { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 
     /* Light Material theme paints tab bodies white; override the full stack
        so the fitted scroll viewport matches the board chrome. */
@@ -623,7 +853,7 @@
       background: var(--tlr-board-surface, #14171b);
     }
 
-    .mat-mdc-tab-body.mat-mdc-tab-body-active { flex: 1 1 0%; min-height: 0; }
+    .mat-mdc-tab-body.mat-mdc-tab-body-active { flex: 1 1 auto; min-height: 0; }
     .mat-mdc-tab-body-content {
       box-sizing: border-box;
       display: flex;
@@ -681,9 +911,11 @@
 
   rdio-scanner-select,
   rdio-scanner-alerts,
-  rdio-scanner-settings {
+  rdio-scanner-settings,
+  rdio-scanner-incident-map {
     flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden;
   }
 }
 
@@ -779,35 +1011,10 @@
   margin: 0 0 8px;
 }
 
-.board-split {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
+.board-main {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
-
-  .board-main {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  .alerts-rail {
-    flex: 0 0 300px;
-    width: 300px;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    background: #181c21;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    overflow: hidden;
-
-    rdio-scanner-alerts {
-      flex: 1 1 auto;
-      min-height: 0;
-      min-width: 0;
-      overflow: hidden;
-    }
-  }
 }
 
 .history-table-wrap {

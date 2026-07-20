@@ -17,7 +17,7 @@
  * ****************************************************************************
  */
 
-import { Component, EventEmitter, Input, OnDestroy, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, HostBinding, Input, OnDestroy, OnInit, Output } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Subject, Subscription, firstValueFrom } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
@@ -70,17 +70,16 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     @Input() boardEmbedMax = 12;
     @Output() openFullAlerts = new EventEmitter<void>();
 
+    @HostBinding('class.alerts-host-embed')
+    get alertsHostEmbed(): boolean {
+        return this.boardEmbed;
+    }
+
     /**
      * `alertsAndPreferences` — inner tabs Alerts + Preferences only (main Board “Alerts” tab).
      * `transcripts` / `stats` — single full-page panel (separate main Board tabs).
      */
     @Input() panelMode: RdioScannerAlertsPanelMode = 'alertsAndPreferences';
-
-    /**
-     * Classic/legacy sidenav: add a third inner tab “Transcripts” (full transcript list) next to Alerts / Preferences.
-     * Main board keeps a separate top-level Transcripts tab — leave this false there to avoid duplication.
-     */
-    @Input() includeTranscriptsTab = false;
 
     alerts: RdioScannerAlert[] = [];
     systemAlerts: RdioScannerSystemAlert[] = [];
@@ -94,7 +93,7 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     loadingTranscripts = false;
     limit = 50;
     transcriptOffset = 0;
-    activeTab: 'alerts' | 'preferences' | 'transcripts' = 'alerts';
+    activeTab: 'alerts' | 'preferences' = 'alerts';
 
     // Stats
     stats: StatsData | null = null;
@@ -235,13 +234,16 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
                     if (this.boardEmbed || this.panelMode !== 'stats') {
                         this.loadAlerts(false);
                     }
-                    if (!this.boardEmbed && (this.panelMode === 'transcripts' || (this.panelMode === 'alertsAndPreferences' && this.activeTab === 'transcripts'))) {
+                    if (!this.boardEmbed && this.panelMode === 'transcripts') {
                         this.onTranscriptsMayHaveChanged();
                     }
                     if (this.boardEmbed || this.panelMode === 'alertsAndPreferences') {
                         this.showNotification(event.alert);
                         this.playAlertSound();
                     }
+                }
+                if (event.incident) {
+                    this.alertsService.patchIncidentUpdate(event.incident);
                 }
                 if (event.config && !this.boardEmbed && (this.panelMode === 'alertsAndPreferences' || this.panelMode === 'transcripts')) {
                     this.loadSystemsAndTalkgroups();
@@ -254,19 +256,20 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         if (!this.boardEmbed || !this.alerts?.length) {
             return [];
         }
-        // Deduplicate by callId — keep the alert with the most keywords for each call
-        // so the same call never appears more than once in the embed rail.
+        // Deduplicate by callId — keep the alert with the most keywords for each call.
         const byCall = new Map<number, RdioScannerAlert>();
         for (const alert of this.alerts) {
             if (alert?.createdAt == null) continue;
-            const existing = byCall.get(alert.callId);
+            const callId = Number(alert.callId);
+            if (!Number.isFinite(callId)) continue;
+            const existing = byCall.get(callId);
             if (!existing) {
-                byCall.set(alert.callId, alert);
+                byCall.set(callId, alert);
             } else {
-                const existingCount = existing.keywordsMatched ? JSON.parse(existing.keywordsMatched).length : 0;
-                const newCount = alert.keywordsMatched ? JSON.parse(alert.keywordsMatched).length : 0;
+                const existingCount = this.countKeywordsMatched(existing);
+                const newCount = this.countKeywordsMatched(alert);
                 if (newCount > existingCount || (!existing.transcript && alert.transcript)) {
-                    byCall.set(alert.callId, alert);
+                    byCall.set(callId, alert);
                 }
             }
         }
@@ -274,7 +277,7 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
             .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
             .slice(0, this.boardEmbedMax);
     }
-    
+
     loadSystemsAndTalkgroups(): void {
         const config = this.rdioScannerService.getConfig();
         if (config && config.systems) {
@@ -646,31 +649,14 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         return false;
     }
 
-    /** When true, classic sidenav shows Alerts | Preferences | Transcripts inner tabs. */
-    get showTranscriptsInnerTab(): boolean {
-        return this.includeTranscriptsTab && this.isTranscriptionEnabled;
-    }
-
-    get isTranscriptionEnabled(): boolean {
-        return !!this.rdioScannerService.getConfig()?.options?.transcriptionEnabled;
-    }
-
-    setTab(tab: 'alerts' | 'preferences' | 'transcripts'): void {
+    setTab(tab: 'alerts' | 'preferences'): void {
         if (this.panelMode !== 'alertsAndPreferences') {
-            return;
-        }
-        if (tab === 'transcripts' && !this.showTranscriptsInnerTab) {
             return;
         }
         this.activeTab = tab;
         if (tab === 'alerts') {
             this.loadAlerts(false);
             this.loadSystemAlerts();
-        }
-        if (tab === 'transcripts') {
-            this.loadTranscripts();
-            void this.loadCollectorSettings();
-            void this.loadGlobalTrainingProgress();
         }
     }
 
@@ -1087,6 +1073,10 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         return unique;
     }
 
+    private countKeywordsMatched(alert: RdioScannerAlert): number {
+        return this.getKeywordsMatched(alert).length;
+    }
+
     formatTimestamp(timestamp: number): string {
         const date = new Date(timestamp);
         const datePart = date.toLocaleDateString();
@@ -1149,13 +1139,20 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
         const channelGrouped = new Map<string, RdioScannerAlert[]>();
         
         this.alerts.filter(alert => alert.alertType === 'keyword' || alert.alertType === 'transcript').forEach(alert => {
+            const callId = Number(alert.callId);
+            if (!Number.isFinite(callId)) {
+                return;
+            }
             // Create channel key from system + talkgroup
             const channelKey = `${alert.systemLabel || `System ${alert.systemId}`} / ${alert.talkgroupLabel || alert.talkgroupName || `Talkgroup ${alert.talkgroupId}`}`;
             
             if (!channelGrouped.has(channelKey)) {
                 channelGrouped.set(channelKey, []);
             }
-            channelGrouped.get(channelKey)!.push(alert);
+            const list = channelGrouped.get(channelKey)!;
+            if (!list.some(a => Number(a.callId) === callId)) {
+                list.push(alert);
+            }
         });
         
         // Convert to array and find latest timestamp for each group
@@ -1190,6 +1187,12 @@ export class RdioScannerAlertsComponent implements OnDestroy, OnInit {
     playCall(callId: number): void {
         // Trigger call playback
         this.rdioScannerService.loadAndPlay(callId);
+    }
+
+    hasIncidentLocation(alert: RdioScannerAlert): boolean {
+        return typeof alert.incidentLat === 'number' &&
+            alert.incidentLat !== 0 &&
+            !!alert.incidentNature?.trim();
     }
 
     requestNotificationPermission(): void {

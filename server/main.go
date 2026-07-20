@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>
 
+//go:build !remapcall && !reviewmapped && !diagnoselost && !reviewunmapped
+
 package main
 
 import (
@@ -28,7 +30,6 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -251,9 +252,35 @@ func main() {
 		return SecurityHeadersMiddleware(handler)
 	}
 
+	// After restart, browsers may reuse stale keep-alive sockets; force fresh TCP
+	// until config is loaded and briefly afterward so the first reload succeeds.
+	startupConnectionMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !controller.IsStartupReady() {
+				w.Header().Set("Connection", "close")
+			} else if at := controller.StartupReadyAt(); !at.IsZero() && time.Since(at) < 30*time.Second {
+				w.Header().Set("Connection", "close")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
 	// Helper to wrap handlers with recovery, rate limiting, and security headers
 	wrapHandler := func(handler http.Handler) http.Handler {
-		return securityHeadersWrapper(rateLimitWrapper(recoveryMiddleware(handler)))
+		return startupConnectionMiddleware(securityHeadersWrapper(rateLimitWrapper(recoveryMiddleware(handler))))
+	}
+
+	// Tile-specific rate limiting: a single map viewport load or radar
+	// animation cycle can legitimately fire hundreds of tile requests in a
+	// few seconds, which would otherwise exhaust the general per-IP budget
+	// (shared with static assets and every API call) and surface a false
+	// "too many requests" error on a normal page reload. The tile handler
+	// already guards the upstream providers with disk caching + singleflight.
+	tileRateLimitWrapper := func(handler http.Handler) http.Handler {
+		return RateLimitMiddleware(controller.TileRateLimiter)(handler)
+	}
+	tileWrapHandler := func(handler http.Handler) http.Handler {
+		return startupConnectionMiddleware(securityHeadersWrapper(tileRateLimitWrapper(recoveryMiddleware(handler))))
 	}
 
 	// corsMiddleware adds CORS headers so the Central Management frontend (a different
@@ -311,8 +338,30 @@ func main() {
 	http.HandleFunc("/api/admin/transcription-failures", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.TranscriptionFailuresHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/transcription-failure-threshold", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.TranscriptionFailureThresholdHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/transcript-parser", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.TranscriptParserHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/config", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingConfigHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/data", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingSystemDataHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/import-boundaries", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingImportBoundariesHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/import-boundaries/status", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingImportBoundariesStatusHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/boundaries/stats", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingBoundariesStatsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/boundaries", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingDeleteBoundariesHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/tone-set-locations", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingToneSetLocationsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/apply-tone-set-locations", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingApplyToneSetLocationsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/suggest-tone-set-locations", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingSuggestToneSetLocationsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/talkgroup-locations", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingTalkgroupLocationsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/apply-talkgroup-locations", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingApplyTalkgroupLocationsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/suggest-talkgroup-locations", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingSuggestTalkgroupLocationsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/mapping/regeocode/", wrapHandler(controller.Admin.requireLocalhost(http.HandlerFunc(controller.Api.MappingRegeocodeCallHandler))).ServeHTTP)
 	http.HandleFunc("/api/admin/relay-suspension", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelaySuspensionStatusHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/relay-unlock-public-client", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayUnlockPublicClientHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-account/status", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayAccountStatusHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-account/login", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayAccountLoginHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-account/create", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayAccountCreateHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-account/migrate", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayAccountMigrateHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-account/request-migration", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayAccountRequestMigrationHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-account/logout", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayAccountLogoutHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/nominatim/subscribe", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.NominatimSubscribeHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-billing/catalog", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayBillingCatalogHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/relay-billing/subscribe", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.RelayPlanSubscribeHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/tone-detection-issue-threshold", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ToneDetectionIssueThresholdHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/alert-retention-days", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.AlertRetentionDaysHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/no-audio-threshold-minutes", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.NoAudioThresholdMinutesHandler)).ServeHTTP)
@@ -529,15 +578,20 @@ func main() {
 	// Alert routes
 	http.HandleFunc("/api/alerts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertsHandler))).ServeHTTP)
 	http.HandleFunc("/api/alerts/preferences", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertPreferencesHandler))).ServeHTTP)
+	http.HandleFunc("/api/incidents", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.IncidentsHandler))).ServeHTTP)
+	http.HandleFunc("/api/map/boundaries", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.MapBoundariesHandler))).ServeHTTP)
+	http.HandleFunc("/api/map/tiles/", tileWrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.MapTilesHandler))).ServeHTTP)
 	http.HandleFunc("/api/stats", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.StatsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts/training-progress", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsTrainingProgressHandler))).ServeHTTP)
 	http.HandleFunc("/api/keyword-lists", wrapHandler(http.HandlerFunc(controller.Api.KeywordListsHandler)).ServeHTTP)
+	http.HandleFunc("/api/call-natures", wrapHandler(http.HandlerFunc(controller.Api.CallNaturesHandler)).ServeHTTP)
 
 	// System alert routes (system admins only)
 	http.HandleFunc("/api/system-alerts", wrapHandler(http.HandlerFunc(controller.Api.SystemAlertsHandler)).ServeHTTP)
 	http.HandleFunc("/api/system-alerts/", wrapHandler(http.HandlerFunc(controller.Api.SystemAlertDismissHandler)).ServeHTTP)
 	http.HandleFunc("/api/keyword-lists/", wrapHandler(http.HandlerFunc(controller.Api.KeywordListHandler)).ServeHTTP)
+	http.HandleFunc("/api/call-natures/", wrapHandler(http.HandlerFunc(controller.Api.CallNatureHandler)).ServeHTTP)
 
 	// User settings routes — wrapped with CORS so Central Management can call across origins
 	http.HandleFunc("/api/settings", wrapHandler(corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -563,6 +617,7 @@ func main() {
 	http.HandleFunc("/api/webhook/central-set-relay-key", securityHeadersWrapper(recoveryMiddleware(http.HandlerFunc(controller.Api.CentralWebhookSetRelayAPIKeyHandler))).ServeHTTP)
 	http.HandleFunc("/api/webhook/central-set-hydra-config", securityHeadersWrapper(recoveryMiddleware(http.HandlerFunc(controller.Api.CentralWebhookSetHydraConfigHandler))).ServeHTTP)
 	http.HandleFunc("/api/webhook/relay-suspension", securityHeadersWrapper(recoveryMiddleware(http.HandlerFunc(controller.Api.RelaySuspensionWebhookHandler))).ServeHTTP)
+	http.HandleFunc("/api/webhook/relay-billing", securityHeadersWrapper(recoveryMiddleware(http.HandlerFunc(controller.Api.RelayBillingWebhookHandler))).ServeHTTP)
 	http.HandleFunc("/api/webhook/relay-listener-pin", securityHeadersWrapper(recoveryMiddleware(http.HandlerFunc(controller.Api.RelayListenerPinWebhookHandler))).ServeHTTP)
 
 	// Central Management pairing endpoint — called by the CM backend to push the API key and
@@ -606,6 +661,9 @@ func main() {
 	// Time sync endpoint — no auth, no DB, intentionally bare-minimum for accuracy under load.
 	// Used by the tlr-time-sync client on SDR-Trunk machines to align their clocks with the server.
 	http.HandleFunc("/api/time", controller.Api.TimeHandler)
+
+	// Startup readiness — no auth, no DB; web client polls before opening websocket after restart.
+	http.HandleFunc("/api/ready", controller.Api.ReadyHandler)
 
 	// Call upload endpoints - exclude from security headers and rate limiting (machine-to-machine APIs)
 	// These endpoints handle their own validation and need to accept frequent uploads
@@ -911,6 +969,13 @@ func main() {
 		url := r.URL.Path[1:]
 
 		if strings.EqualFold(r.Header.Get("upgrade"), "websocket") {
+			if !controller.IsStartupReady() {
+				w.Header().Set("Retry-After", "2")
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("Server starting up — retry shortly"))
+				return
+			}
 			upgrader := websocket.Upgrader{
 				CheckOrigin: func(r *http.Request) bool {
 					return true
@@ -1052,6 +1117,15 @@ func main() {
 		log.Printf("admin interface at http://%s:%s/admin", hostname, port)
 	}
 
+	// Accept HTTP immediately so static assets load while controller.Start() reads the DB.
+	httpServer = newServer(fmt.Sprintf("%s:%s", addr, port), nil)
+	go func() {
+		log.Printf("startup: HTTP listening on %s:%s (loading configuration...)", addr, port)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
 	if err := controller.Start(); err != nil {
 		log.Printf("FATAL: Failed to start controller: %v", err)
 		log.Printf("Server cannot continue without a running controller. Exiting.")
@@ -1059,15 +1133,6 @@ func main() {
 	}
 
 	deferPostStartupMaintenance(controller.Database)
-
-	// Start HTTP server in a goroutine
-	httpServer = newServer(fmt.Sprintf("%s:%s", addr, port), nil)
-	go func() {
-		log.Printf("startup: HTTP listening on %s:%s", addr, port)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
-		}
-	}()
 
 	// Wait for interrupt signal
 	<-sigChan
@@ -1100,20 +1165,4 @@ func main() {
 	// Terminate controller (shuts down workers, closes database, etc.)
 	log.Println("Terminating controller...")
 	controller.Terminate()
-}
-
-func GetRemoteAddr(r *http.Request) string {
-	re := regexp.MustCompile(`(.+):.*$`)
-
-	for _, addr := range strings.Split(r.Header.Get("X-Forwarded-For"), ",") {
-		if ip := re.ReplaceAllString(addr, "$1"); len(ip) > 0 {
-			return ip
-		}
-	}
-
-	if ip := re.ReplaceAllString(r.RemoteAddr, "$1"); len(ip) > 0 {
-		return ip
-	}
-
-	return r.RemoteAddr
 }

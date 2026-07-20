@@ -36,6 +36,9 @@ type TranscriptionOptions struct {
 	SystemLabel    string   // Human-readable system name (passed to Whisper server for logging)
 	TalkgroupLabel string   // Human-readable talkgroup name (passed to Whisper server for logging)
 	CallID         uint64   // Call ID (passed to Whisper server for log correlation)
+	// ExtractAddress asks Gemini (and similar multimodal providers) to also
+	// return a scene address / common place name in ExtractedAddress.
+	ExtractAddress bool
 }
 
 // TranscriptionResult contains the transcription result
@@ -45,6 +48,9 @@ type TranscriptionResult struct {
 	Language     string              `json:"language"`      // Detected language code
 	Segments     []TranscriptSegment `json:"segments"`      // Timestamped segments (optional)
 	AlertSummary string              `json:"alert_summary"` // Optional short summary from Whisper server (e.g. from integrated Ollama); used for alerts when present
+	// ExtractedAddress is an optional short scene address / place from Gemini
+	// when incident-mapping address extraction is enabled.
+	ExtractedAddress string `json:"extracted_address,omitempty"`
 }
 
 // TranscriptSegment represents a timestamped segment of the transcript

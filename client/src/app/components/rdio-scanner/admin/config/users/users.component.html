@@ -220,7 +220,7 @@
                             <span *ngIf="!user.systems || user.systems === '*'"><strong>Systems:</strong> All</span>
                         </div>
 
-                        <!-- FCM Tokens -->
+                        <!-- Device Tokens (push / VoIP) -->
                         <div class="fcm-section" *ngIf="user.fcmTokens && user.fcmTokens.length > 0">
                             <h5 class="section-label">
                                 <mat-icon>devices</mat-icon>
@@ -440,18 +440,57 @@
                                 <mat-checkbox formControlName="systemAdmin">System Admin</mat-checkbox>
                                 <mat-checkbox formControlName="forcePasswordReset">Require Password Reset on Next Login</mat-checkbox>
                             </div>
-                            <div class="form-row checkboxes-row">
-                                <mat-checkbox formControlName="pushSystemNoAudioAlerts">Push: System No Audio</mat-checkbox>
-                                <mat-checkbox formControlName="pushApiKeyNoAudioAlerts">Push: API Key No Audio</mat-checkbox>
-                            </div>
                             <div class="hint-row">
                                 <span class="muted" *ngIf="editingUser && !editingUser.userGroupId">
                                     User must be in a group to be a group admin.
                                 </span>
+                            </div>
+
+                            <div class="form-section" *ngIf="!editForm.get('systemAdmin')?.value">
+                                <h6 class="form-section-title">System No Audio Alerts</h6>
+                                <div class="form-row">
+                                    <mat-form-field appearance="outline" class="full-width">
+                                        <mat-label>Systems to view</mat-label>
+                                        <mat-select formControlName="systemNoAudioAlertSystemIds" multiple>
+                                            <mat-option *ngFor="let system of systems" [value]="system.id">
+                                                {{ system.label || ('System ' + system.id) }}
+                                            </mat-option>
+                                        </mat-select>
+                                        <mat-hint>Select which systems' no-audio alerts this user can see in the app.</mat-hint>
+                                    </mat-form-field>
+                                </div>
+                                <div class="form-row checkboxes-row">
+                                    <mat-checkbox formControlName="pushSystemNoAudioAlerts">Push notifications</mat-checkbox>
+                                </div>
+                            </div>
+
+                            <div class="form-section" *ngIf="!editForm.get('systemAdmin')?.value">
+                                <h6 class="form-section-title">API Key No Audio Alerts</h6>
+                                <div class="form-row">
+                                    <mat-form-field appearance="outline" class="full-width">
+                                        <mat-label>API keys to view</mat-label>
+                                        <mat-select formControlName="apiKeyNoAudioAlertApiKeyIds" multiple>
+                                            <mat-option *ngFor="let apikey of apikeys" [value]="apiKeyOptionId(apikey)">
+                                                {{ apikey.ident || ('API Key ' + apiKeyOptionId(apikey)) }}
+                                            </mat-option>
+                                        </mat-select>
+                                        <mat-hint>Select which uploader/API key no-audio alerts this user can see.</mat-hint>
+                                    </mat-form-field>
+                                </div>
+                                <div class="form-row checkboxes-row">
+                                    <mat-checkbox formControlName="pushApiKeyNoAudioAlerts">Push notifications</mat-checkbox>
+                                </div>
+                            </div>
+
+                            <div class="hint-row" *ngIf="!editForm.get('systemAdmin')?.value">
                                 <span class="muted">
-                                    System admins receive all health alert push notifications and can send system alerts.
-                                    Assign push checkboxes to notify specific users for no-audio alerts without full admin access.
-                                    All users can view system and API key no-audio alerts in the app.
+                                    System admins receive all health alerts and can send manual system alerts.
+                                    Assign systems and API keys above to let non-admins view and optionally receive push for those no-audio alerts only.
+                                </span>
+                            </div>
+                            <div class="hint-row" *ngIf="editForm.get('systemAdmin')?.value">
+                                <span class="muted">
+                                    System admins receive all health alert notifications and can send manual system alerts.
                                 </span>
                             </div>
 

@@ -263,10 +263,9 @@ Query params:
 ### `GET /api/system-alerts`
 Return system alerts visible to the authenticated user.
 
-- All users: `manual`, `no_audio`, `no_audio_received`, `api_key_no_audio`
-- System admins: all alert types
-
-Push notifications for no-audio alerts go to system admins plus users with `pushSystemNoAudioAlerts` or `pushApiKeyNoAudioAlerts` (set in Admin → Users).
+- **System admins:** all alert types
+- **Other users:** `manual` (all); `no_audio` / `api_key_no_audio` only for systems/API keys assigned on the user in Admin → Users (`systemNoAudioAlertSystems`, `apiKeyNoAudioAlertApiKeys` JSON id lists); other health types require system admin
+- Push for no-audio alerts: system admins plus users with push enabled **and** the matching system/API key assigned
 
 ---
 

@@ -21,8 +21,12 @@
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy, ChangeDetectorRef, OnInit, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 import { FormArray, FormControl, FormGroup } from '@angular/forms';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatDialog } from '@angular/material/dialog';
 import { Subscription } from 'rxjs';
 import { RdioScannerAdminService, Group, Tag } from '../../../admin.service';
+import { ToneSetLocationDialogComponent } from './tone-set-location-dialog.component';
+import { TalkgroupLocationDialogComponent } from './talkgroup-location-dialog.component';
 
 @Component({
     selector: 'rdio-scanner-admin-system',
@@ -87,10 +91,18 @@ export class RdioScannerAdminSystemComponent implements OnInit, OnChanges, OnDes
     private groupLabelById = new Map<number, string>();
     tagsUsedInSystemList: Tag[] = [];
 
+    // ─── Incident-mapping talkgroup location lookup ────────────────────────────
     constructor(
         private adminService: RdioScannerAdminService,
-        private cdr: ChangeDetectorRef
+        private cdr: ChangeDetectorRef,
+        private dialog: MatDialog,
+        private snackBar: MatSnackBar,
     ) { }
+
+    get systemId(): number | null {
+        const id = this.form.get('id')?.value;
+        return typeof id === 'number' && id > 0 ? id : null;
+    }
 
     ngOnChanges(changes: SimpleChanges) {
         if (changes['tags'] || changes['groups']) {
@@ -729,4 +741,129 @@ export class RdioScannerAdminSystemComponent implements OnInit, OnChanges, OnDes
         this.cdr.markForCheck();
     }
     onSitesSearchChange(s: string): void { this.sitesSearchTerm = s; }
+
+    // ─── Tone set / talkgroup locations ────────────────────────────────────────
+
+    openToneSetLocationDialog(): void {
+        const id = this.systemId;
+        if (!id) {
+            this.snackBar.open('Save this system first', 'Close', { duration: 4000 });
+            return;
+        }
+        const ref = this.dialog.open(ToneSetLocationDialogComponent, {
+            width: '960px',
+            maxWidth: '96vw',
+            data: { systemId: id },
+        });
+        ref.afterClosed().subscribe((saved) => {
+            if (saved) {
+                void this.refreshToneSetLocationsFromServer();
+            }
+        });
+    }
+
+    openTalkgroupLocationDialog(): void {
+        const id = this.systemId;
+        if (!id) {
+            this.snackBar.open('Save this system first', 'Close', { duration: 4000 });
+            return;
+        }
+        const ref = this.dialog.open(TalkgroupLocationDialogComponent, {
+            width: '960px',
+            maxWidth: '96vw',
+            data: { systemId: id },
+        });
+        ref.afterClosed().subscribe((saved) => {
+            if (saved) {
+                void this.refreshTalkgroupLocationsFromServer();
+            }
+        });
+    }
+
+    private async refreshToneSetLocationsFromServer(): Promise<void> {
+        const id = this.systemId;
+        if (!id) {
+            return;
+        }
+        try {
+            const res = await this.adminService.listToneSetLocations(id);
+            const byKey = new Map<string, { geoCity?: string; geoLat?: number; geoLon?: number; geoRadiusMiles?: number; locationContext?: string }>();
+            for (const row of res.toneSets || []) {
+                byKey.set(`${row.talkgroupId}:${row.toneSetId}`, row);
+            }
+            const arr = this.form.get('talkgroups') as FormArray | null;
+            if (!arr) {
+                return;
+            }
+            for (const tgCtrl of arr.controls) {
+                const tgId = tgCtrl.get('id')?.value;
+                const toneSets = tgCtrl.get('toneSets') as FormArray | null;
+                if (!toneSets) {
+                    continue;
+                }
+                for (const tsCtrl of toneSets.controls) {
+                    const tsId = tsCtrl.get('id')?.value;
+                    const row = byKey.get(`${tgId}:${tsId}`);
+                    if (!row) {
+                        continue;
+                    }
+                    tsCtrl.patchValue({
+                        geoCity: row.geoCity || '',
+                        geoLat: row.geoLat ?? null,
+                        geoLon: row.geoLon ?? null,
+                        geoRadiusMiles: row.geoRadiusMiles ?? null,
+                        locationContext: row.locationContext || '',
+                    }, { emitEvent: false });
+                }
+            }
+            this.snackBar.open('Tone set locations updated in the editor.', 'Close', { duration: 5000 });
+            this.cdr.markForCheck();
+        } catch (err: any) {
+            this.snackBar.open(
+                err?.error?.error || err?.message || 'Saved, but could not refresh the editor — reload the system.',
+                'Close',
+                { duration: 8000 },
+            );
+        }
+    }
+
+    private async refreshTalkgroupLocationsFromServer(): Promise<void> {
+        const id = this.systemId;
+        if (!id) {
+            return;
+        }
+        try {
+            const res = await this.adminService.listTalkgroupLocations(id);
+            const byId = new Map((res.talkgroups || []).map((row) => [row.talkgroupId, row]));
+            const arr = this.form.get('talkgroups') as FormArray | null;
+            if (!arr) {
+                return;
+            }
+            for (const tgCtrl of arr.controls) {
+                const tgId = tgCtrl.get('id')?.value;
+                const row = byId.get(tgId);
+                const im = tgCtrl.get('incidentMapping') as FormGroup | null;
+                if (!row || !im) {
+                    continue;
+                }
+                im.patchValue({
+                    inherit: row.inherit ?? true,
+                    enabled: row.enabled ?? false,
+                    geoCity: row.geoCity || '',
+                    geoLat: row.geoLat ?? 0,
+                    geoLon: row.geoLon ?? 0,
+                    geoRadiusMiles: row.geoRadiusMiles || 25,
+                    locationContext: row.locationContext || '',
+                }, { emitEvent: false });
+            }
+            this.snackBar.open('Talkgroup locations updated in the editor.', 'Close', { duration: 5000 });
+            this.cdr.markForCheck();
+        } catch (err: any) {
+            this.snackBar.open(
+                err?.error?.error || err?.message || 'Saved, but could not refresh the editor — reload the system.',
+                'Close',
+                { duration: 8000 },
+            );
+        }
+    }
 }

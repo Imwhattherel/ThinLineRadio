@@ -344,7 +344,7 @@ func (client *Client) SendConfig(groups *Groups, options *Options, systems *Syst
 			// perform their own ECDH key exchange. The raw AES key is never sent here.
 			// The client token is auto-fetched from the relay using the server's API key.
 			"audioEncryptionEnabled": options.AudioEncryptionEnabled,
-			"relayServerURL":         options.RelayServerURL,
+			"relayServerURL":         getRelayServerURL(),
 			"audioClientToken":       client.Controller.AudioClientToken,
 		},
 		"playbackGoesLive":   options.PlaybackGoesLive,
@@ -363,26 +363,41 @@ func (client *Client) SendConfig(groups *Groups, options *Options, systems *Syst
 		}
 	}
 
-	// Non-blocking send to prevent deadlock
+	// Non-blocking send to prevent deadlock; config is critical so retry briefly.
+	client.sendMessage(&Message{Command: MessageCommandConfig, Payload: payload}, 3*time.Second)
+}
+
+// sendMessage enqueues a websocket message. Most traffic is best-effort; critical
+// messages (config) wait up to maxWait rather than being dropped silently.
+func (client *Client) sendMessage(msg *Message, maxWait time.Duration) {
+	if client.Send == nil || msg == nil {
+		return
+	}
 	select {
-	case client.Send <- &Message{Command: MessageCommandConfig, Payload: payload}:
-		// Message sent successfully
+	case client.Send <- msg:
+		return
 	default:
-		// Channel full, skip to avoid blocking
+	}
+	if maxWait <= 0 {
+		return
+	}
+	timer := time.NewTimer(maxWait)
+	defer timer.Stop()
+	select {
+	case client.Send <- msg:
+	case <-timer.C:
+		if client.Controller != nil {
+			client.Controller.Logs.LogEvent(LogLevelWarn,
+				fmt.Sprintf("dropped websocket %s message to ip %s (send channel full)", msg.Command, client.GetRemoteAddr()))
+		}
 	}
 }
 
 func (client *Client) SendListenersCount(count int) {
-	// Non-blocking send to prevent deadlock
-	select {
-	case client.Send <- &Message{
+	client.sendMessage(&Message{
 		Command: MessagecommandListenersCount,
 		Payload: count,
-	}:
-		// Message sent successfully
-	default:
-		// Channel full, skip to avoid blocking
-	}
+	}, 0)
 }
 
 type Clients struct {
@@ -458,6 +473,34 @@ func (clients *Clients) Add(client *Client) {
 
 func (clients *Clients) Count() int {
 	return len(clients.Map)
+}
+
+// EmitIncidentUpdate notifies connected clients that incident mapping finished
+// for a call (map pin / alert location icon refresh). Does not require livefeed.
+func (clients *Clients) EmitIncidentUpdate(controller *Controller, call *Call, payload map[string]any) {
+	if controller == nil || call == nil || call.System == nil || call.Talkgroup == nil || payload == nil {
+		return
+	}
+	clients.mutex.Lock()
+	var targets []*Client
+	restricted := controller.requiresUserAuth()
+	for c := range clients.Map {
+		if restricted {
+			if c.User == nil || !controller.userHasAccess(c.User, call) {
+				continue
+			}
+		}
+		targets = append(targets, c)
+	}
+	clients.mutex.Unlock()
+
+	msg := &Message{Command: MessageCommandIncident, Payload: payload}
+	for _, c := range targets {
+		select {
+		case c.Send <- msg:
+		default:
+		}
+	}
 }
 
 func (clients *Clients) EmitCall(controller *Controller, call *Call) {

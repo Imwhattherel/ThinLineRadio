@@ -28,7 +28,7 @@ RUN ls -la /build/server/webapp/ && echo "Webapp build successful"
 # =============================================================================
 # Stage 2: Build Go Server
 # =============================================================================
-FROM golang:1.24-alpine AS server-builder
+FROM golang:1.25-alpine AS server-builder
 
 # BuildKit sets these per --platform (e.g. linux/arm64); defaults suit plain `docker build`.
 ARG TARGETOS=linux

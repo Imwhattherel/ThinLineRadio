@@ -21,7 +21,7 @@
 import { Component, ElementRef, OnDestroy, ViewChild, ViewEncapsulation } from '@angular/core';
 import { MatTabChangeEvent } from '@angular/material/tabs';
 import { Title } from '@angular/platform-browser';
-import { AdminEvent, RdioScannerAdminService } from './admin.service';
+import { AdminEvent, Config, RdioScannerAdminService } from './admin.service';
 import { RdioScannerAdminLogsComponent } from './logs/logs.component';
 import { RdioScannerAdminConfigComponent } from './config/config.component';
 import { RdioScannerAdminToolsComponent } from './tools/tools.component';
@@ -53,7 +53,8 @@ const SETTINGS_INDEX: SearchResult[] = [
     { label: 'Favicon', keywords: 'favicon icon browser tab logo generate', breadcrumb: 'Config → Options → Branding', icon: 'web', tab: 0, configSection: 'options', optionPanel: 'brandingExpanded' },
     // ── Transcription ─────────────────────────────────────────────────────────
     { label: 'Transcription', keywords: 'transcription enable provider whisper deepgram openai', breadcrumb: 'Config → Options → Transcription', icon: 'transcribe', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
-    { label: 'Transcription Provider', keywords: 'whisper deepgram openai cloudflare workers ai provider api', breadcrumb: 'Config → Options → Transcription', icon: 'smart_toy', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
+    { label: 'Transcription Provider', keywords: 'whisper deepgram openai gemini flash lite cloudflare workers ai provider api', breadcrumb: 'Config → Options → Transcription', icon: 'smart_toy', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
+    { label: 'Gemini Flash-Lite', keywords: 'gemini flash lite transcription google ai studio', breadcrumb: 'Config → Options → Transcription', icon: 'auto_awesome', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
     { label: 'Cloudflare Workers AI', keywords: 'cloudflare workers ai whisper account id api token transcription', breadcrumb: 'Config → Options → Transcription', icon: 'cloud', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
     { label: 'Transcription Language', keywords: 'language locale transcription', breadcrumb: 'Config → Options → Transcription', icon: 'language', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
     { label: 'Worker Pool Size', keywords: 'worker pool threads concurrent transcription', breadcrumb: 'Config → Options → Transcription', icon: 'memory', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
@@ -83,11 +84,16 @@ const SETTINGS_INDEX: SearchResult[] = [
     { label: 'Stripe Secret Key', keywords: 'stripe secret key sk live test', breadcrumb: 'Config → Options → Stripe', icon: 'lock', tab: 0, configSection: 'options', optionPanel: 'stripeExpanded' },
     { label: 'Stripe Webhook Secret', keywords: 'stripe webhook secret whsec', breadcrumb: 'Config → Options → Stripe', icon: 'webhook', tab: 0, configSection: 'options', optionPanel: 'stripeExpanded' },
     { label: 'Stripe Grace Period', keywords: 'stripe grace period days subscription lapse', breadcrumb: 'Config → Options → Stripe', icon: 'timer', tab: 0, configSection: 'options', optionPanel: 'stripeExpanded' },
+    // ── Thinline Radio Services ──────────────────────────────────────────────
+    { label: 'Relay Server', keywords: 'relay server thinline push notifications audio encryption connect geocoding', breadcrumb: 'Config → Options → Thinline Radio Services', icon: 'cell_tower', tab: 0, configSection: 'options', optionPanel: 'thinlineServicesExpanded' },
+    { label: 'Relay Server API Key', keywords: 'relay server api key push notifications audio encryption request thinline tlr geocoding', breadcrumb: 'Config → Options → Thinline Radio Services', icon: 'vpn_key', tab: 0, configSection: 'options', optionPanel: 'thinlineServicesExpanded' },
+    { label: 'Relay Account', keywords: 'relay account create sign in username password thinline', breadcrumb: 'Config → Options → Thinline Radio Services', icon: 'person_add', tab: 0, configSection: 'options', optionPanel: 'thinlineServicesExpanded' },
+    { label: 'Relay Add-On Plans', keywords: 'relay billing plans geocoding subscribe thinline add-on', breadcrumb: 'Config → Options → Thinline Radio Services', icon: 'credit_card', tab: 0, configSection: 'options', optionPanel: 'thinlineServicesExpanded' },
     // ── Integrations ─────────────────────────────────────────────────────────
+    { label: 'OpenAI', keywords: 'openai api key chat model integration mapping', breadcrumb: 'Config → Options → Integrations', icon: 'smart_toy', tab: 0, configSection: 'options', optionPanel: 'integrationsExpanded' },
+    { label: 'Gemini API Key', keywords: 'gemini google ai studio api key integration mapping suggest', breadcrumb: 'Config → Options → Integrations', icon: 'auto_awesome', tab: 0, configSection: 'options', optionPanel: 'integrationsExpanded' },
     { label: 'Radio Reference', keywords: 'radio reference rr login username password premium account', breadcrumb: 'Config → Options → Integrations', icon: 'cloud_download', tab: 0, configSection: 'options', optionPanel: 'integrationsExpanded' },
-    { label: 'Config Sync', keywords: 'config sync remote server upstream synchronize', breadcrumb: 'Config → Options → Integrations', icon: 'cloud_sync', tab: 0, configSection: 'options', optionPanel: 'integrationsExpanded' },
-    { label: 'Relay Server', keywords: 'relay server thinline push notifications audio encryption connect', breadcrumb: 'Config → Options → Integrations', icon: 'cell_tower', tab: 0, configSection: 'options', optionPanel: 'integrationsExpanded' },
-    { label: 'Relay Server API Key', keywords: 'relay server api key push notifications audio encryption request thinline tlr', breadcrumb: 'Config → Options → Integrations', icon: 'vpn_key', tab: 0, configSection: 'options', optionPanel: 'integrationsExpanded' },
+    { label: 'Config Sync', keywords: 'config sync remote server upstream synchronize', breadcrumb: 'Config → Options → General Settings', icon: 'cloud_sync', tab: 0, configSection: 'options', optionPanel: 'generalExpanded' },
     // ── Audio Settings ────────────────────────────────────────────────────────
     { label: 'Audio Conversion', keywords: 'audio conversion enable convert format', breadcrumb: 'Config → Options → Audio Settings', icon: 'graphic_eq', tab: 0, configSection: 'options', optionPanel: 'securityExpanded' },
     { label: 'Duplicate Detection', keywords: 'duplicate detection call time window', breadcrumb: 'Config → Options → Audio Settings', icon: 'content_copy', tab: 0, configSection: 'options', optionPanel: 'securityExpanded' },
@@ -231,6 +237,18 @@ export class RdioScannerAdminComponent implements OnDestroy {
         if (event.index === 1 && this.logsComponent) {
             this.logsComponent.reload();
         }
+    }
+
+    onConfigFromTools(config: Config & { __isImport?: boolean }): void {
+        const isImport = config.__isImport === true;
+        const { __isImport, ...cleanConfig } = config;
+        this.configComponent?.reset(cleanConfig, { dirty: true, isImport });
+        this.selectedTabIndex = 0;
+    }
+
+    onConfigSavedFromTools(config: Config): void {
+        this.configComponent?.reset(config, { dirty: false, isImport: false });
+        this.selectedTabIndex = 0;
     }
 
     private async updateTitle(): Promise<void> {

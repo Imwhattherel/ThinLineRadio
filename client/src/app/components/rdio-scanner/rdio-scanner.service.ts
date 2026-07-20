@@ -53,6 +53,7 @@ enum WebsocketCallFlag {
 
 enum WebsocketCommand {
     Alert = 'ALT',
+    Incident = 'INC',
     Call = 'CAL',
     Config = 'CFG',
     Error = 'ERR',
@@ -146,6 +147,9 @@ export class RdioScannerService implements OnDestroy {
     private isReconnecting = false;
     private reconnectAttempts = 0;
     private reconnectDelay = 2000; // Start with 2 seconds
+    private configReceived = false;
+    private configWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    private configRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Audio encryption — key obtained from relay server via ECDH, held in memory only.
     private audioDecryptionKey: CryptoKey | undefined;
@@ -174,7 +178,31 @@ export class RdioScannerService implements OnDestroy {
 
         this.loadHoldStates();
 
-        this.openWebsocket();
+        this.connectWhenReady();
+    }
+
+    /** Wait for server config load after restart, then open the websocket. */
+    private connectWhenReady(attemptsLeft = 60): void {
+        fetch('/api/ready', { cache: 'no-store' })
+            .then((res) => res.json().then((body: { ready?: boolean }) => ({ ok: res.ok, body })))
+            .then(({ ok, body }) => {
+                if (ok && body?.ready) {
+                    this.openWebsocket();
+                    return;
+                }
+                if (attemptsLeft > 0) {
+                    setTimeout(() => this.connectWhenReady(attemptsLeft - 1), 500);
+                } else {
+                    this.openWebsocket();
+                }
+            })
+            .catch(() => {
+                if (attemptsLeft > 0) {
+                    setTimeout(() => this.connectWhenReady(attemptsLeft - 1), 500);
+                } else {
+                    this.openWebsocket();
+                }
+            });
     }
 
     authenticate(password: string): void {
@@ -394,117 +422,122 @@ export class RdioScannerService implements OnDestroy {
     private pendingHoldTg = false;
 
     holdSystem(options?: { resubscribe?: boolean }): void {
-        const call = this.call || this.callPrevious;
-
-        if (call && this.livefeedMap) {
-            if (this.livefeedMapPriorToHoldSystem) {
-                this.livefeedMap = this.livefeedMapPriorToHoldSystem;
-
-                this.livefeedMapPriorToHoldSystem = undefined;
-
-                // Save released hold state to local storage
-                this.saveHoldStates();
-            } else {
-                if (this.livefeedMapPriorToHoldTalkgroup) {
-                    this.holdTalkgroup({ resubscribe: false });
-                }
-
-                this.livefeedMapPriorToHoldSystem = this.livefeedMap;
-
-                this.livefeedMap = Object.keys(this.livefeedMap).map((sys) => +sys).reduce((sysMap, sys) => {
-                    const allOn = Object.keys(this.livefeedMap[sys]).map((tg) => +tg).every((tg) => !this.livefeedMap[sys][tg]);
-
-                    sysMap[sys] = Object.keys(this.livefeedMap[sys]).map((tg) => +tg).reduce((tgMap, tg) => {
-                        this.livefeedMap[sys][tg].timer?.unsubscribe();
-
-                        tgMap[tg] = {
-                            active: sys === call.system ? allOn || this.livefeedMap[sys][tg].active : false,
-                        } as RdioScannerLivefeed;
-
-                        return tgMap;
-                    }, {} as { [key: number]: RdioScannerLivefeed });
-
-                    return sysMap;
-                }, {} as RdioScannerLivefeedMap);
-
-                this.cleanQueue();
-            }
-
-            this.rebuildCategories();
-
-            if (typeof options?.resubscribe !== 'boolean' || options.resubscribe) {
-                if (this.livefeedMode === RdioScannerLivefeedMode.Online) {
-                    this.startLivefeed();
-                }
-            }
-
-            this.emitEvent({
-                categories: this.categories,
-                holdSys: !!this.livefeedMapPriorToHoldSystem,
-                holdTg: false,
-                map: this.livefeedMap,
-                queue: this.callQueue.length,
-            });
-
-            // Save hold states to local storage
-            this.saveHoldStates();
+        if (!this.livefeedMap) {
+            return;
         }
+
+        const call = this.call || this.callPrevious;
+        const releasing = !!this.livefeedMapPriorToHoldSystem;
+
+        // Match mobile: release does not need a playing call; activate does.
+        if (!releasing && !call) {
+            return;
+        }
+
+        if (releasing) {
+            this.livefeedMap = this.livefeedMapPriorToHoldSystem!;
+            this.livefeedMapPriorToHoldSystem = undefined;
+        } else {
+            if (this.livefeedMapPriorToHoldTalkgroup) {
+                this.holdTalkgroup({ resubscribe: false });
+            }
+
+            this.livefeedMapPriorToHoldSystem = this.livefeedMap;
+
+            this.livefeedMap = Object.keys(this.livefeedMap).map((sys) => +sys).reduce((sysMap, sys) => {
+                const allOn = Object.keys(this.livefeedMap[sys]).map((tg) => +tg).every((tg) => !this.livefeedMap[sys][tg]);
+
+                sysMap[sys] = Object.keys(this.livefeedMap[sys]).map((tg) => +tg).reduce((tgMap, tg) => {
+                    this.livefeedMap[sys][tg].timer?.unsubscribe();
+
+                    tgMap[tg] = {
+                        active: sys === call!.system ? allOn || this.livefeedMap[sys][tg].active : false,
+                    } as RdioScannerLivefeed;
+
+                    return tgMap;
+                }, {} as { [key: number]: RdioScannerLivefeed });
+
+                return sysMap;
+            }, {} as RdioScannerLivefeedMap);
+
+            this.cleanQueue();
+        }
+
+        this.rebuildCategories();
+
+        if (typeof options?.resubscribe !== 'boolean' || options.resubscribe) {
+            if (this.livefeedMode === RdioScannerLivefeedMode.Online) {
+                this.startLivefeed();
+            }
+        }
+
+        this.emitEvent({
+            categories: this.categories,
+            holdSys: !!this.livefeedMapPriorToHoldSystem,
+            holdTg: false,
+            map: this.livefeedMap,
+            queue: this.callQueue.length,
+        });
+
+        this.saveHoldStates();
     }
 
     holdTalkgroup(options?: { resubscribe?: boolean }): void {
-        const call = this.call || this.callPrevious;
-
-        if (call && this.livefeedMap) {
-            if (this.livefeedMapPriorToHoldTalkgroup) {
-                this.livefeedMap = this.livefeedMapPriorToHoldTalkgroup;
-
-                this.livefeedMapPriorToHoldTalkgroup = undefined;
-
-                // Save released hold state to local storage
-                this.saveHoldStates();
-            } else {
-                if (this.livefeedMapPriorToHoldSystem) {
-                    this.holdSystem({ resubscribe: false });
-                }
-
-                this.livefeedMapPriorToHoldTalkgroup = this.livefeedMap;
-
-                this.livefeedMap = Object.keys(this.livefeedMap).map((sys) => +sys).reduce((sysMap, sys) => {
-                    sysMap[sys] = Object.keys(this.livefeedMap[sys]).map((tg) => +tg).reduce((tgMap, tg) => {
-                        this.livefeedMap[sys][tg].timer?.unsubscribe();
-
-                        tgMap[tg] = {
-                            active: sys === call.system ? tg === call.talkgroup : false,
-                        } as RdioScannerLivefeed;
-
-                        return tgMap;
-                    }, {} as { [key: number]: RdioScannerLivefeed });
-
-                    return sysMap;
-                }, {} as RdioScannerLivefeedMap);
-
-                this.cleanQueue();
-            }
-
-            this.rebuildCategories();
-
-            if (typeof options?.resubscribe !== 'boolean' || options.resubscribe) {
-                if (this.livefeedMode === RdioScannerLivefeedMode.Online) {
-                    this.startLivefeed();
-                }
-            }
-
-            this.emitEvent({
-                categories: this.categories,
-                holdSys: false,
-                holdTg: !!this.livefeedMapPriorToHoldTalkgroup,
-                map: this.livefeedMap,
-                queue: this.callQueue.length,
-            });
-
-            // Save hold states to local storage
-            this.saveHoldStates();
+        if (!this.livefeedMap) {
+            return;
         }
+
+        const call = this.call || this.callPrevious;
+        const releasing = !!this.livefeedMapPriorToHoldTalkgroup;
+
+        if (!releasing && !call) {
+            return;
+        }
+
+        if (releasing) {
+            this.livefeedMap = this.livefeedMapPriorToHoldTalkgroup!;
+            this.livefeedMapPriorToHoldTalkgroup = undefined;
+        } else {
+            if (this.livefeedMapPriorToHoldSystem) {
+                this.holdSystem({ resubscribe: false });
+            }
+
+            this.livefeedMapPriorToHoldTalkgroup = this.livefeedMap;
+
+            this.livefeedMap = Object.keys(this.livefeedMap).map((sys) => +sys).reduce((sysMap, sys) => {
+                sysMap[sys] = Object.keys(this.livefeedMap[sys]).map((tg) => +tg).reduce((tgMap, tg) => {
+                    this.livefeedMap[sys][tg].timer?.unsubscribe();
+
+                    tgMap[tg] = {
+                        active: sys === call!.system ? tg === call!.talkgroup : false,
+                    } as RdioScannerLivefeed;
+
+                    return tgMap;
+                }, {} as { [key: number]: RdioScannerLivefeed });
+
+                return sysMap;
+            }, {} as RdioScannerLivefeedMap);
+
+            this.cleanQueue();
+        }
+
+        this.rebuildCategories();
+
+        if (typeof options?.resubscribe !== 'boolean' || options.resubscribe) {
+            if (this.livefeedMode === RdioScannerLivefeedMode.Online) {
+                this.startLivefeed();
+            }
+        }
+
+        this.emitEvent({
+            categories: this.categories,
+            holdSys: false,
+            holdTg: !!this.livefeedMapPriorToHoldTalkgroup,
+            map: this.livefeedMap,
+            queue: this.callQueue.length,
+        });
+
+        this.saveHoldStates();
     }
 
     isAvoided(call: RdioScannerCall): boolean {
@@ -1153,6 +1186,7 @@ export class RdioScannerService implements OnDestroy {
     }
 
     private closeWebsocket(): void {
+        this.clearConfigWatchdog();
         if (this.websocket instanceof WebSocket) {
             // Remove all event handlers first
             this.websocket.onclose = null;
@@ -1273,8 +1307,8 @@ export class RdioScannerService implements OnDestroy {
                     // Reset isReconnecting flag so we can schedule a new reconnect attempt
                     this.isReconnecting = false;
                     this.reconnectAttempts++;
-                    // Retry every 2 seconds continuously
-                    timer(this.reconnectDelay).subscribe(() => this.reconnectWebsocket());
+                    // Retry quickly while the server may still be starting up.
+                    timer(this.reconnectDelayMs()).subscribe(() => this.reconnectWebsocket());
                 } else if (ev.code === 1000) {
                     this.reconnectAttempts = 0; // Reset on clean close
                     this.isReconnecting = false;
@@ -1286,6 +1320,7 @@ export class RdioScannerService implements OnDestroy {
                 this.isReconnecting = false;
                 this.reconnectAttempts = 0; // Reset on successful connection
                 this.emitEvent({ linked: this.linked });
+                this.armConfigWatchdog();
 
             if (this.websocket instanceof WebSocket) {
                 this.websocket.onmessage = (ev: MessageEvent) => {
@@ -1306,8 +1341,45 @@ export class RdioScannerService implements OnDestroy {
             this.emitEvent({ linked: this.linked });
             // Schedule reconnect on error (keep trying every 2 seconds)
             this.reconnectAttempts++;
-            timer(this.reconnectDelay).subscribe(() => this.reconnectWebsocket());
+            timer(this.reconnectDelayMs()).subscribe(() => this.reconnectWebsocket());
         }
+    }
+
+    private reconnectDelayMs(): number {
+        if (this.reconnectAttempts < 8) {
+            return 750;
+        }
+        return this.reconnectDelay;
+    }
+
+    private clearConfigWatchdog(): void {
+        if (this.configWatchdogTimer) {
+            clearTimeout(this.configWatchdogTimer);
+            this.configWatchdogTimer = null;
+        }
+        if (this.configRetryTimer) {
+            clearTimeout(this.configRetryTimer);
+            this.configRetryTimer = null;
+        }
+    }
+
+    /** Re-request config (or reconnect) when the socket opens but CFG never arrives. */
+    private armConfigWatchdog(): void {
+        this.clearConfigWatchdog();
+        this.configReceived = false;
+        this.configWatchdogTimer = setTimeout(() => {
+            this.configWatchdogTimer = null;
+            if (this.configReceived || this.websocket?.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            this.sendtoWebsocket(WebsocketCommand.Config);
+            this.configRetryTimer = setTimeout(() => {
+                this.configRetryTimer = null;
+                if (!this.configReceived) {
+                    this.reconnectWebsocket();
+                }
+            }, 4000);
+        }, 3000);
     }
 
     private parseWebsocketMessage(message: string): void {
@@ -1325,6 +1397,11 @@ export class RdioScannerService implements OnDestroy {
                     if (message[1] !== null) {
                         const alertData = message[1];
                         this.emitEvent({ alert: alertData });
+                    }
+                    break;
+                case WebsocketCommand.Incident:
+                    if (message[1] !== null) {
+                        this.emitEvent({ incident: message[1] });
                     }
                     break;
                 case WebsocketCommand.Call:
@@ -1374,6 +1451,8 @@ export class RdioScannerService implements OnDestroy {
                     }
 
                     try {
+                        this.configReceived = true;
+                        this.clearConfigWatchdog();
                         this.config = {
                         alerts: config.alerts,
                         branding: typeof config.branding === 'string' ? config.branding : '',

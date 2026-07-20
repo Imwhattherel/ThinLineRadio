@@ -108,9 +108,9 @@ func (controller *Controller) disconnectPublicWebClientsForSuspension() {
 }
 
 func (controller *Controller) pollRelaySuspensionOnce() {
-	relayURL := strings.TrimRight(strings.TrimSpace(controller.Options.RelayServerURL), "/")
+	relayURL := getRelayServerURL()
 	apiKey := strings.TrimSpace(controller.Options.RelayServerAPIKey)
-	if relayURL == "" || apiKey == "" {
+	if apiKey == "" {
 		return
 	}
 	u := relayURL + "/api/keys/details"

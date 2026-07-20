@@ -1,0 +1,121 @@
+<div class="admin-section-bar cn-page-header">
+    <p class="admin-section-hint">
+        Call natures are the incident categories shown on call cards. Add transcript phrases under each category for automatic matching.
+    </p>
+    <button type="button" mat-stroked-button (click)="addNew()">
+        <mat-icon>add</mat-icon>
+        Add Category
+    </button>
+</div>
+
+<mat-form-field appearance="outline" class="cn-search">
+    <mat-label>Search categories or phrases</mat-label>
+    <input matInput [(ngModel)]="searchFilter" autocomplete="off">
+    <mat-icon matSuffix>search</mat-icon>
+</mat-form-field>
+
+<div *ngIf="loading" class="cn-loading">
+    <mat-spinner diameter="28"></mat-spinner>
+    <span>Loading call natures…</span>
+</div>
+
+<div *ngIf="!loading && callNatures.length === 0" class="cn-empty">
+    <mat-icon>category</mat-icon>
+    <p class="mat-body">No call nature categories configured</p>
+    <button type="button" mat-raised-button color="primary" (click)="addNew()">
+        <mat-icon>add</mat-icon>
+        Add First Category
+    </button>
+</div>
+
+<div *ngIf="!loading && callNatures.length > 0 && filteredNatures.length === 0" class="cn-empty">
+    <p class="mat-caption">No categories match your search.</p>
+</div>
+
+<div *ngIf="!loading" class="cn-cards">
+    <div *ngFor="let nature of filteredNatures"
+         class="cn-card"
+         [class.cn-card--editing]="editingIndex === indexOfNature(nature)"
+         [class.cn-card--disabled]="!nature.enabled">
+
+        <ng-container *ngIf="editingIndex !== indexOfNature(nature)">
+            <div class="cn-card-header">
+                <div class="cn-card-meta">
+                    <span class="cn-card-name">{{ nature.label || 'Unnamed' }}</span>
+                    <span class="cn-count-badge">{{ (nature.phrases || []).length }}</span>
+                    <span class="cn-disabled-badge" *ngIf="!nature.enabled">Disabled</span>
+                </div>
+                <div class="cn-card-actions">
+                    <button mat-icon-button (click)="startEdit(indexOfNature(nature))" matTooltip="Edit phrases">
+                        <mat-icon>edit</mat-icon>
+                    </button>
+                    <button mat-icon-button color="warn" (click)="deleteNature(indexOfNature(nature))" matTooltip="Delete category">
+                        <mat-icon>delete</mat-icon>
+                    </button>
+                </div>
+            </div>
+            <div class="cn-preview" *ngIf="nature.phrases?.length">
+                <span *ngFor="let phrase of (nature.phrases | slice:0:10)" class="cn-chip">{{ phrase }}</span>
+                <span *ngIf="(nature.phrases?.length || 0) > 10" class="cn-chip cn-chip--more">
+                    +{{ (nature.phrases?.length || 0) - 10 }} more
+                </span>
+            </div>
+            <p *ngIf="!nature.phrases?.length" class="cn-none">No matching phrases yet</p>
+        </ng-container>
+
+        <ng-container *ngIf="editingIndex === indexOfNature(nature) && editingForm">
+            <div class="cn-edit-header">
+                <mat-icon>edit</mat-icon>
+                <span>Edit call nature</span>
+            </div>
+            <form [formGroup]="editingForm" class="cn-edit-form" (ngSubmit)="saveEdit()">
+                <div class="cn-edit-row">
+                    <mat-form-field appearance="outline" class="cn-field-label">
+                        <mat-label>Category label</mat-label>
+                        <input matInput formControlName="label" autocomplete="off">
+                    </mat-form-field>
+                    <mat-slide-toggle formControlName="enabled">Enabled</mat-slide-toggle>
+                </div>
+
+                <div class="cn-edit-phrases">
+                    <div class="cn-phrases-toolbar">
+                        <span class="cn-section-label">
+                            Transcript phrases
+                            <span class="cn-count-badge">{{ editingPhrases.length }}</span>
+                        </span>
+                    </div>
+                    <div class="cn-add-row">
+                        <mat-form-field appearance="outline" class="cn-add-field">
+                            <mat-label>Add phrase</mat-label>
+                            <input matInput [(ngModel)]="newPhraseText" [ngModelOptions]="{standalone: true}"
+                                   (keydown.enter)="$event.preventDefault(); addPhraseFromInput()"
+                                   autocomplete="off">
+                        </mat-form-field>
+                        <button type="button" mat-stroked-button class="cn-add-btn" (click)="addPhraseFromInput()">
+                            <mat-icon>add</mat-icon>
+                            Add
+                        </button>
+                    </div>
+                    <div class="cn-edit-chips" *ngIf="editingPhrases.length">
+                        <span *ngFor="let phrase of editingPhrases" class="cn-edit-chip">
+                            <span class="cn-chip-text">{{ phrase }}</span>
+                            <button type="button" mat-icon-button class="cn-remove-btn"
+                                    (click)="removePhrase(editingForm!, phrase)">
+                                <mat-icon>close</mat-icon>
+                            </button>
+                        </span>
+                    </div>
+                    <p *ngIf="!editingPhrases.length" class="cn-none">Add phrases that appear in transcripts for this category.</p>
+                </div>
+
+                <div class="cn-edit-actions">
+                    <button type="button" mat-button (click)="cancelEdit()">Cancel</button>
+                    <button type="submit" mat-raised-button color="primary" [disabled]="editingForm.invalid">
+                        <mat-icon>save</mat-icon>
+                        Save
+                    </button>
+                </div>
+            </form>
+        </ng-container>
+    </div>
+</div>

@@ -8,13 +8,23 @@
 
     &.board-embed {
         padding: 8px;
-        height: 100%;
+        flex: 1 1 0;
+        height: auto;
         min-height: 0;
-        flex: 1;
         display: flex;
         flex-direction: column;
         background: transparent;
+        overflow: hidden;
     }
+}
+
+:host.alerts-host-embed {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
 }
 
 .alerts-header-embed {
@@ -94,18 +104,24 @@
 }
 
 .board-embed-content {
-    flex: 1;
-    min-height: 120px;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 .alerts-list-embed {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-right: 4px;
     padding-bottom: 8px;
 }
 
@@ -117,31 +133,51 @@
     min-width: 0;
     overflow: hidden;
 
-    .alert-header {
+    .alert-header-embed {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        min-width: 0;
+        margin-bottom: 6px;
+    }
+
+    .alert-header-main {
+        display: flex;
         align-items: flex-start;
+        justify-content: space-between;
         gap: 6px;
         min-width: 0;
     }
 
     .alert-header-left {
-        flex: 0 1 auto;
+        flex: 1 1 auto;
         min-width: 0;
     }
 
-    .alert-header-right {
+    .alert-header-actions {
         flex: 0 0 auto;
-        min-width: 0;
+        display: flex;
+        align-items: center;
         gap: 6px;
     }
 
-    .alert-timestamp--stacked {
+    .incident-map-pin {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        color: #ffb74d;
+    }
+
+    .alert-timestamp--embed {
         display: flex;
-        flex-direction: column;
-        align-items: flex-end;
+        align-items: baseline;
+        justify-content: flex-end;
+        gap: 6px;
         line-height: 1.25;
         font-size: 10px;
+        color: rgba(255, 255, 255, 0.55);
         white-space: nowrap;
-        text-align: right;
     }
 
     .embed-keywords {
@@ -2139,7 +2175,7 @@
             font-family: var(--tlr-font-numeric);
         }
 
-        .alert-timestamp--stacked {
+        .alert-timestamp--embed {
             .alert-timestamp-date,
             .alert-timestamp-time {
                 font-family: var(--tlr-font-numeric);

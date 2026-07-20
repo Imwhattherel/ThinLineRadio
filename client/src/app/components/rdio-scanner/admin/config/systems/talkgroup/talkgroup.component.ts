@@ -18,7 +18,7 @@
  */
 
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
-import { FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { AbstractControl, FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { MatSelectChange } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { finalize } from 'rxjs/operators';
@@ -47,6 +47,10 @@ export class RdioScannerAdminTalkgroupComponent {
     syncingToneSets   = false;
     syncToneSetsStatus = '';
     syncSelectedIds   = new Set<string>();
+
+    // Tone sets are collapsed by default to keep the talkgroup editor compact;
+    // tracked by tone-set id so the expanded state survives add/remove reorders.
+    expandedToneSets = new Set<string>();
 
     analyzingToneHistory = false;
     toneHistoryStatus = '';
@@ -87,9 +91,10 @@ export class RdioScannerAdminTalkgroupComponent {
         return toneSetsArray;
     }
 
-    addToneSet(toneSet?: Partial<RdioScannerToneSet>): void {
+    addToneSet(toneSet?: Partial<RdioScannerToneSet>, expand = false): void {
+        const id = toneSet?.id || this.generateToneSetId();
         const toneSetForm = this.formBuilder.group({
-            id: [toneSet?.id || this.generateToneSetId()],
+            id: [id],
             label: [toneSet?.label || '', Validators.required],
             aToneFrequency: [toneSet?.aTone?.frequency ?? null],
             aToneMinDuration: [toneSet?.aTone?.minDuration ?? null],
@@ -105,12 +110,65 @@ export class RdioScannerAdminTalkgroupComponent {
             downstreamEnabled: [(toneSet as any)?.downstreamEnabled ?? false],
             downstreamURL: [(toneSet as any)?.downstreamURL ?? ''],
             downstreamAPIKey: [(toneSet as any)?.downstreamAPIKey ?? ''],
+            geoCity: [toneSet?.geoCity ?? ''],
+            geoLat: [toneSet?.geoLat ?? null],
+            geoLon: [toneSet?.geoLon ?? null],
+            geoRadiusMiles: [toneSet?.geoRadiusMiles ?? null],
+            locationContext: [toneSet?.locationContext ?? ''],
         });
         this.getToneSets().push(toneSetForm);
+        if (expand) {
+            this.expandedToneSets.add(id);
+        }
     }
 
     removeToneSet(index: number): void {
+        const id = this.getToneSets().at(index)?.get('id')?.value;
+        if (id) {
+            this.expandedToneSets.delete(id);
+        }
         this.getToneSets().removeAt(index);
+    }
+
+    isToneSetExpanded(ctrl: AbstractControl): boolean {
+        return this.expandedToneSets.has(ctrl.get('id')?.value);
+    }
+
+    toggleToneSet(ctrl: AbstractControl): void {
+        const id = ctrl.get('id')?.value;
+        if (!id) {
+            return;
+        }
+        if (this.expandedToneSets.has(id)) {
+            this.expandedToneSets.delete(id);
+        } else {
+            this.expandedToneSets.add(id);
+        }
+    }
+
+    toneSetTitle(ctrl: AbstractControl, index: number): string {
+        const label = (ctrl.get('label')?.value || '').toString().trim();
+        const base = label || `Tone set ${index + 1}`;
+        const loc = this.toneSetLocationSummary(ctrl);
+        return loc ? `${base} · ${loc}` : base;
+    }
+
+    toneSetLocationSummary(ctrl: AbstractControl): string {
+        const city = (ctrl.get('geoCity')?.value || '').toString().trim();
+        if (city) {
+            const radius = ctrl.get('geoRadiusMiles')?.value;
+            return radius ? `${city} (${radius} mi)` : city;
+        }
+        const lat = ctrl.get('geoLat')?.value;
+        const lon = ctrl.get('geoLon')?.value;
+        if (typeof lat === 'number' && typeof lon === 'number' && lat !== 0 && lon !== 0) {
+            return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        }
+        return '';
+    }
+
+    toneSetHasLocation(ctrl: AbstractControl): boolean {
+        return !!this.toneSetLocationSummary(ctrl);
     }
 
     triggerToneImport(format: ToneImportFormat): void {
@@ -304,7 +362,7 @@ export class RdioScannerAdminTalkgroupComponent {
         this.addToneSet({
             ...suggestion.toneSet,
             label: suggestion.label || suggestion.toneSet.label,
-        });
+        }, true);
         this.toneHistorySuggestions = this.toneHistorySuggestions.filter((s) => s !== suggestion);
         this.cdr.markForCheck();
     }

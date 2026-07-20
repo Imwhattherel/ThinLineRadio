@@ -38,6 +38,12 @@ import { ScanListsService, ScanList, ScanListChannel } from '../scan-lists.servi
 import { SystemsVisibilityDialogComponent } from './systems-visibility-dialog.component';
 import { ScanListEditDialogComponent, ScanListEditDialogData } from './scan-list-edit-dialog.component';
 
+export interface ChannelSearchResult {
+    system: RdioScannerSystem;
+    talkgroup: RdioScannerTalkgroup;
+    tag: string;
+}
+
 @Component({
     selector: 'rdio-scanner-select',
     styleUrls: [
@@ -105,7 +111,7 @@ export class RdioScannerSelectComponent implements OnDestroy, OnInit {
         // Load hidden systems from localStorage
         this.loadHiddenSystems();
 
-        // Config/categories/map may have been applied before this instance subscribed (e.g. toggling New ↔ Classic view destroys and recreates this component).
+        // Config/categories/map may have been applied before this instance subscribed.
         this.seedFromRdioService();
     }
 
@@ -362,24 +368,81 @@ export class RdioScannerSelectComponent implements OnDestroy, OnInit {
         this.cdRef.markForCheck();
     }
 
-    getSystemsForSidebar(): RdioScannerSystem[] {
-        let list: RdioScannerSystem[];
+    isSearchActive(): boolean {
+        return this.searchQuery.trim().length > 0;
+    }
+
+    /** Systems listed in the left navigator rail (not filtered by search). */
+    getSystemsForBrowseRail(): RdioScannerSystem[] {
         if (this.navMode === 'favorites') {
-            list = this.getFavoriteSystemsWithFavorites().filter(s => !this.hiddenSystems.has(s.id));
-        } else {
-            list = this.getVisibleSystems();
+            return this.getFavoriteSystemsWithFavorites().filter(s => !this.hiddenSystems.has(s.id));
         }
+        return this.getVisibleSystems();
+    }
+
+    /** @deprecated Use getSystemsForBrowseRail — kept for any external callers. */
+    getSystemsForSidebar(): RdioScannerSystem[] {
+        return this.getSystemsForBrowseRail();
+    }
+
+    getSearchResults(): ChannelSearchResult[] {
         const q = this.searchQuery.trim().toLowerCase();
-        if (!q) return list;
-        return list.filter(system => {
-            if ((system.label || '').toLowerCase().includes(q)) return true;
-            return (system.talkgroups || []).some(tg => {
-                const label = (tg.label || '').toLowerCase();
-                const name = (tg.name || '').toLowerCase();
-                const id = tg.id.toString();
-                return label.includes(q) || name.includes(q) || id.includes(q);
-            });
+        if (!q) return [];
+
+        const results: ChannelSearchResult[] = [];
+        for (const system of this.getSystemsForBrowseRail()) {
+            const talkgroups = this.navMode === 'favorites'
+                ? this.getFavoriteTagGroupsForSystem(system).flatMap(g => g.talkgroups)
+                : (system.talkgroups || []);
+
+            for (const talkgroup of talkgroups) {
+                const label = (talkgroup.label || '').toLowerCase();
+                const name = (talkgroup.name || '').toLowerCase();
+                const id = talkgroup.id.toString();
+                const systemLabel = (system.label || '').toLowerCase();
+                if (label.includes(q) || name.includes(q) || id.includes(q) || systemLabel.includes(q)) {
+                    results.push({
+                        system,
+                        talkgroup,
+                        tag: talkgroup.tag || 'Untagged',
+                    });
+                }
+            }
+        }
+
+        results.sort((a, b) => {
+            const scoreDiff = this.searchRelevanceScore(b, q) - this.searchRelevanceScore(a, q);
+            if (scoreDiff !== 0) return scoreDiff;
+            const systemCmp = (a.system.label || '').localeCompare(b.system.label || '');
+            if (systemCmp !== 0) return systemCmp;
+            return (a.talkgroup.label || '').localeCompare(b.talkgroup.label || '');
         });
+
+        return results;
+    }
+
+    trackBySearchResult(_index: number, hit: ChannelSearchResult): string {
+        return `${hit.system.id}-${hit.talkgroup.id}`;
+    }
+
+    openSystemFromSearch(systemId: number, event?: Event): void {
+        event?.stopPropagation();
+        event?.preventDefault();
+        this.searchQuery = '';
+        this.detailSystemId = systemId;
+        this.cdRef.markForCheck();
+    }
+
+    private searchRelevanceScore(hit: ChannelSearchResult, q: string): number {
+        const label = (hit.talkgroup.label || '').toLowerCase();
+        const name = (hit.talkgroup.name || '').toLowerCase();
+        if (label === q) return 100;
+        if (label.startsWith(q)) return 80;
+        if (label.includes(q)) return 60;
+        if (name.includes(q)) return 40;
+        if (hit.talkgroup.id.toString() === q) return 30;
+        if ((hit.system.label || '').toLowerCase().includes(q)) return 20;
+        return 10;
     }
 
     getDetailSystem(): RdioScannerSystem | undefined {
@@ -388,7 +451,7 @@ export class RdioScannerSelectComponent implements OnDestroy, OnInit {
     }
 
     private syncDetailSystemSelection(): void {
-        const list = this.getSystemsForSidebar();
+        const list = this.getSystemsForBrowseRail();
         if (list.length === 0) {
             this.detailSystemId = null;
             return;

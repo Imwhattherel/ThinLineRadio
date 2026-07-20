@@ -294,7 +294,7 @@ func (hs *HealthService) gather() (map[string]interface{}, bool) {
 		strings.TrimSpace(opts.CentralManagementAPIKey) != ""
 	payload["central_management_enabled"] = opts.CentralManagementEnabled
 	payload["central_management_paired"] = cmPaired
-	payload["relay_configured"] = opts.RelayServerURL != "" && opts.RelayServerAPIKey != ""
+	payload["relay_configured"] = opts.RelayServerAPIKey != ""
 	payload["hydra_transcription_enabled"] = opts.HydraTranscriptionEnabled
 	payload["hydra_api_key_present"] = strings.TrimSpace(opts.HydraAPIKey) != ""
 

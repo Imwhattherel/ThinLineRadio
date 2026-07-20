@@ -59,6 +59,12 @@ type ToneSet struct {
 	DownstreamEnabled bool   `json:"downstreamEnabled"` // Forward alerts for this tone set to an external endpoint
 	DownstreamURL     string `json:"downstreamURL"`     // Destination URL (TonesToActive server)
 	DownstreamAPIKey  string `json:"downstreamAPIKey"`  // API key sent in X-API-Key header
+	// Incident mapping jurisdiction (takes priority over parent talkgroup geo when this tone set matches)
+	GeoCity         string  `json:"geoCity"`
+	GeoLat          float64 `json:"geoLat"`
+	GeoLon          float64 `json:"geoLon"`
+	GeoRadiusMiles  float64 `json:"geoRadiusMiles"`
+	LocationContext string  `json:"locationContext"`
 }
 
 // ToneSpec defines the expected frequency and duration ranges for a tone

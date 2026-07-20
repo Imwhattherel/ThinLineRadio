@@ -23,7 +23,10 @@ import { AppSharedModule } from '../../shared/shared.module';
 import { RdioScannerComponent } from './rdio-scanner.component';
 import { RdioScannerService } from './rdio-scanner.service';
 import { RdioScannerConsoleComponent } from './console/console.component';
-import { RdioScannerMainLegacyComponent } from './main/main-legacy.component';
+import { RdioScannerIncidentMapComponent } from './incident-map/incident-map.component';
+import { RdioScannerIncidentMapSidebarComponent } from './incident-map/incident-map-sidebar.component';
+import { IncidentsService } from './incident-map/incidents.service';
+import { IncidentMapBridgeService } from './incident-map/incident-map-bridge.service';
 import { RdioScannerSupportComponent } from './main/support/support.component';
 import { RdioScannerNativeModule } from './native/native.module';
 import { RdioScannerSearchComponent } from './search/search.component';
@@ -54,12 +57,17 @@ import { RdioScannerMobileWebHubComponent } from './mobile-web-hub/mobile-web-hu
 import { RdioScannerChassisComponent } from './skin/chassis.component';
 import { RdioScannerLcdFrameComponent } from './skin/lcd-frame.component';
 import { RdioScannerLcdBottomNavComponent } from './skin/lcd-bottom-nav.component';
+import { RdioScannerWeatherWidgetComponent } from './weather/weather-widget.component';
+import { RdioScannerWeatherAlertTickerComponent } from './weather/weather-alert-ticker.component';
+import { WeatherAlertTickerBridgeService } from './weather/weather-alert-ticker-bridge.service';
+import { NwsService } from './weather/nws.service';
 
 @NgModule({
     declarations: [
         RdioScannerComponent,
         RdioScannerConsoleComponent,
-        RdioScannerMainLegacyComponent,
+        RdioScannerIncidentMapComponent,
+        RdioScannerIncidentMapSidebarComponent,
         RdioScannerSearchComponent,
         RdioScannerSelectComponent,
         SystemsVisibilityDialogComponent,
@@ -81,6 +89,8 @@ import { RdioScannerLcdBottomNavComponent } from './skin/lcd-bottom-nav.componen
         RdioScannerChassisComponent,
         RdioScannerLcdFrameComponent,
         RdioScannerLcdBottomNavComponent,
+        RdioScannerWeatherWidgetComponent,
+        RdioScannerWeatherAlertTickerComponent,
     ],
     exports: [
         RdioScannerComponent,
@@ -96,12 +106,16 @@ import { RdioScannerLcdBottomNavComponent } from './skin/lcd-bottom-nav.componen
         RdioScannerService,
         SettingsService,
         AlertsService,
+        IncidentsService,
+        IncidentMapBridgeService,
+        WeatherAlertTickerBridgeService,
         TagColorService,
         FavoritesService,
         ScanListsService,
         AlertSoundService,
         RdioScannerAdminService,
         TranscriptReviewService,
+        NwsService,
         { provide: OverlayContainer, useClass: FullscreenOverlayContainer },
     ],
 })

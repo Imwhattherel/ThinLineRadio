@@ -9,7 +9,6 @@ package main
 
 import (
 	"encoding/json"
-	"strconv"
 )
 
 func parseSystemAlertData(alert *SystemAlert) *SystemAlertData {
@@ -21,47 +20,6 @@ func parseSystemAlertData(alert *SystemAlert) *SystemAlertData {
 		return nil
 	}
 	return &data
-}
-
-func (controller *Controller) userHasApiKeyAlertAccess(user *User, apiKeyId uint64) bool {
-	if user == nil || apiKeyId == 0 {
-		return false
-	}
-	apikey, ok := controller.Apikeys.GetById(apiKeyId)
-	if !ok {
-		return false
-	}
-	switch v := apikey.Systems.(type) {
-	case string:
-		if v == "*" {
-			return user.HasAnySystemAccess()
-		}
-		return false
-	case []any:
-		for _, entry := range v {
-			scope, ok := entry.(map[string]any)
-			if !ok {
-				continue
-			}
-			idVal, ok := scope["id"]
-			if !ok {
-				continue
-			}
-			var systemRef uint
-			switch id := idVal.(type) {
-			case float64:
-				systemRef = uint(id)
-			case string:
-				if parsed, err := strconv.ParseUint(id, 10, 32); err == nil {
-					systemRef = uint(parsed)
-				}
-			}
-			if systemRef > 0 && controller.userHasSystemScopeAccess(user, systemRef) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (controller *Controller) userHasSystemAlertAccess(user *User, alert *SystemAlert) bool {
@@ -84,16 +42,12 @@ func (controller *Controller) userHasSystemAlertAccess(user *User, alert *System
 		if data == nil || data.SystemId == 0 {
 			return false
 		}
-		sys, ok := controller.Systems.GetSystemById(data.SystemId)
-		if !ok {
-			return false
-		}
-		return controller.userHasSystemScopeAccess(user, sys.SystemRef)
+		return user.HasSystemNoAudioAlertSystemId(data.SystemId)
 	case "api_key_no_audio":
 		if data == nil || data.ApiKeyId == 0 {
 			return false
 		}
-		return controller.userHasApiKeyAlertAccess(user, data.ApiKeyId)
+		return user.HasApiKeyNoAudioAlertApiKeyId(data.ApiKeyId)
 	case "tone_detection_issue":
 		if data == nil || data.SystemId == 0 || data.TalkgroupId == 0 {
 			return false
@@ -107,6 +61,35 @@ func (controller *Controller) userHasSystemAlertAccess(user *User, alert *System
 			return false
 		}
 		return controller.userHasTalkgroupScopeAccess(user, sys.SystemRef, tg.TalkgroupRef)
+	default:
+		return false
+	}
+}
+
+func (controller *Controller) userShouldReceiveSystemAlertPush(user *User, alertType string, dataJSON string) bool {
+	if user == nil || !user.Verified {
+		return false
+	}
+	if user.SystemAdmin {
+		return true
+	}
+
+	var data SystemAlertData
+	if dataJSON != "" {
+		_ = json.Unmarshal([]byte(dataJSON), &data)
+	}
+
+	switch alertType {
+	case "no_audio", "no_audio_received":
+		if !user.PushSystemNoAudioAlerts || data.SystemId == 0 {
+			return false
+		}
+		return user.HasSystemNoAudioAlertSystemId(data.SystemId)
+	case "api_key_no_audio":
+		if !user.PushApiKeyNoAudioAlerts || data.ApiKeyId == 0 {
+			return false
+		}
+		return user.HasApiKeyNoAudioAlertApiKeyId(data.ApiKeyId)
 	default:
 		return false
 	}

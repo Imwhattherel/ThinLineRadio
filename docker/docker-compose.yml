@@ -19,7 +19,7 @@ services:
   # PostgreSQL Database
   # =============================================================================
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: thinline-postgres
     restart: unless-stopped
     
@@ -44,7 +44,7 @@ services:
     ports:
       # Expose PostgreSQL port (optional, for external access)
       # Comment out if you don't need external database access
-      - "5432:5432"
+      - "5433:5432"
     
     networks:
       - thinline_network

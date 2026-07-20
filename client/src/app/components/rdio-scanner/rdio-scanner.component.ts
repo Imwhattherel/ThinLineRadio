@@ -17,9 +17,8 @@
  * ****************************************************************************
  */
 
-import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { MatSidenav } from '@angular/material/sidenav';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { timer } from 'rxjs';
 import { RdioScannerEvent, RdioScannerLivefeedMode } from './rdio-scanner';
@@ -27,7 +26,6 @@ import { RdioScannerService } from './rdio-scanner.service';
 import { SettingsService } from './settings/settings.service';
 import { RdioScannerNativeComponent } from './native/native.component';
 import { isMobileRestrictedBrowser } from './mobile-browser.util';
-import { RdioScannerSearchComponent } from './search/search.component';
 import { AppFontService } from './app-font.service';
 
 @Component({
@@ -45,94 +43,8 @@ export class RdioScannerComponent implements OnDestroy, OnInit {
     private pinAuthRequired = false;
     private connectionLimitAlertShown = false;
 
-    useClassicView = window?.localStorage?.getItem('rdio-scanner-classic-view') === 'true';
-
-    /** Lazy-mount classic sidenav panels on first open (shared components, not legacy forks). */
-    classicSearchMounted = false;
-    classicSelectMounted = false;
-    classicSettingsMounted = false;
-    classicAlertsMounted = false;
-
     /** Mobile browsers cannot use the scanner UI; see mobile-web-hub. */
     readonly isMobileRestrictedBrowser = isMobileRestrictedBrowser();
-
-    // Classic view sidenav refs
-    @ViewChild('classicSearchPanel')  private classicSearchPanel:  MatSidenav | undefined;
-    @ViewChild('classicSelectPanel')  private classicSelectPanel:  MatSidenav | undefined;
-    @ViewChild('classicSettingsPanel') private classicSettingsPanel: MatSidenav | undefined;
-    @ViewChild('classicAlertsPanel')  private classicAlertsPanel:  MatSidenav | undefined;
-    @ViewChild('classicSearchComponent') private classicSearchComponent: RdioScannerSearchComponent | undefined;
-    @ViewChild('classicScrollableSelect') private classicScrollableSelect: ElementRef<HTMLElement> | undefined;
-    @ViewChild('classicScrollableSettings') private classicScrollableSettings: ElementRef<HTMLElement> | undefined;
-    @ViewChild('classicScrollableAlerts') private classicScrollableAlerts: ElementRef<HTMLElement> | undefined;
-
-    toggleClassicView(): void {
-        const leavingClassic = this.useClassicView;
-        this.useClassicView = !this.useClassicView;
-        window?.localStorage?.setItem('rdio-scanner-classic-view', String(this.useClassicView));
-
-        if (leavingClassic) {
-            this.rdioScannerService.stopPlaybackMode();
-            this.resetClassicPanelState();
-        }
-    }
-
-    openClassicSearchPanel(): void {
-        this.classicSearchMounted = true;
-        setTimeout(() => {
-            this.classicSearchComponent?.scrollResultsToTop();
-            this.classicSearchPanel?.open();
-            this.classicSearchComponent?.searchCalls();
-        });
-    }
-
-    openClassicSelectPanel(): void {
-        this.classicSelectMounted = true;
-        setTimeout(() => {
-            const el = this.classicScrollableSelect?.nativeElement;
-            if (el) {
-                this.classicScrollTop(el);
-            }
-            this.classicSelectPanel?.open();
-        });
-    }
-
-    openClassicSettingsPanel(): void {
-        this.classicSettingsMounted = true;
-        setTimeout(() => {
-            const el = this.classicScrollableSettings?.nativeElement;
-            if (el) {
-                this.classicScrollTop(el);
-            }
-            this.classicSettingsPanel?.open();
-        });
-    }
-
-    openClassicAlertsPanel(): void {
-        this.classicAlertsMounted = true;
-        setTimeout(() => {
-            const el = this.classicScrollableAlerts?.nativeElement;
-            if (el) {
-                this.classicScrollTop(el);
-            }
-            this.classicAlertsPanel?.open();
-        });
-    }
-
-    private resetClassicPanelState(): void {
-        this.classicSearchMounted = false;
-        this.classicSelectMounted = false;
-        this.classicSettingsMounted = false;
-        this.classicAlertsMounted = false;
-    }
-
-    classicScrollTop(e: HTMLElement): void {
-        setTimeout(() => e.scrollTo(0, 0));
-    }
-
-    onSearchPanelClosed(): void {
-        this.rdioScannerService.stopPlaybackMode();
-    }
 
     constructor(
         private matSnackBar: MatSnackBar,
@@ -230,8 +142,6 @@ export class RdioScannerComponent implements OnDestroy, OnInit {
 
     stop(): void {
         this.rdioScannerService.stopLivefeed();
-        this.classicSearchPanel?.close();
-        this.classicSelectPanel?.close();
     }
 
     toggleFullscreen(): void {

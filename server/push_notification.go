@@ -428,8 +428,7 @@ func (controller *Controller) sendNotificationBatch(playerIDs []string, title, s
 	}
 
 	// Send to relay server (hardcoded URL)
-	relayServerURL := "https://tlradioserver.thinlineds.com"
-	url := fmt.Sprintf("%s/api/notify", relayServerURL)
+	url := fmt.Sprintf("%s/api/notify", getRelayServerURL())
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to create push notification request: %v", err))

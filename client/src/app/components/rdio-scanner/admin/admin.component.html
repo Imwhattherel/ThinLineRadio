@@ -116,8 +116,8 @@
             <div class="tab-content">
                 <rdio-scanner-admin-tools
                     #toolsComponent
-                    (config)="configComponent.reset($event, { dirty: true, isImport: false }); selectedTabIndex = 0"
-                    (configSaved)="configComponent.reset($event, { dirty: false, isImport: false }); selectedTabIndex = 0">
+                    (config)="onConfigFromTools($event)"
+                    (configSaved)="onConfigSavedFromTools($event)">
                 </rdio-scanner-admin-tools>
             </div>
         </mat-tab>

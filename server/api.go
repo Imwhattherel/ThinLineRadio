@@ -107,6 +107,38 @@ func (api *Api) TimeHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"unix_ns":%d}`, time.Now().UnixNano())
 }
 
+// ReadyHandler reports whether the server finished loading configuration.
+// No auth, no DB — used by the web client before opening a websocket after restart.
+func (api *Api) ReadyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Connection", "close")
+
+	ready := api.Controller != nil && api.Controller.IsStartupReady()
+	if r.Method == http.MethodHead {
+		if ready {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		return
+	}
+
+	if ready {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"ready":true}`)
+		return
+	}
+	w.Header().Set("Retry-After", "1")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	fmt.Fprint(w, `{"ready":false}`)
+}
+
 // isMobileAppRequest checks if the request is from a mobile app by examining the User-Agent header
 func (api *Api) isMobileAppRequest(r *http.Request) bool {
 	userAgent := r.Header.Get("User-Agent")
@@ -2900,7 +2932,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query all alerts (no userId filter) with system, talkgroup labels, call transcripts, and tone sequence
-		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
+		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."incidentAddress", c."incidentLat", c."incidentLon", c."incidentNature", c."incidentGeocodeStatus" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
 		rows, err := api.Controller.Database.Sql.Query(query)
 		if err != nil {
 			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query alerts: %v", err))
@@ -2931,9 +2963,14 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				callToneSequence        sql.NullString
 				callTimestamp           sql.NullInt64
 				callAlertSummary        sql.NullString
+				incidentAddress         sql.NullString
+				incidentLat             sql.NullFloat64
+				incidentLon             sql.NullFloat64
+				incidentNature          sql.NullString
+				incidentGeocodeStatus   sql.NullString
 			)
 
-			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary); err != nil {
+			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &incidentAddress, &incidentLat, &incidentLon, &incidentNature, &incidentGeocodeStatus); err != nil {
 				continue
 			}
 
@@ -3064,6 +3101,19 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if callAlertSummary.Valid && callAlertSummary.String != "" {
 				alertMap["alertSummary"] = callAlertSummary.String
+			}
+			if incidentAddress.Valid && incidentAddress.String != "" {
+				alertMap["incidentAddress"] = incidentAddress.String
+			}
+			if incidentLat.Valid && incidentLon.Valid && incidentLat.Float64 != 0 {
+				alertMap["incidentLat"] = incidentLat.Float64
+				alertMap["incidentLon"] = incidentLon.Float64
+			}
+			if incidentNature.Valid && incidentNature.String != "" {
+				alertMap["incidentNature"] = incidentNature.String
+			}
+			if incidentGeocodeStatus.Valid && incidentGeocodeStatus.String != "" {
+				alertMap["incidentGeocodeStatus"] = incidentGeocodeStatus.String
 			}
 			if toneSetId != "" {
 				alertMap["toneSetId"] = toneSetId
@@ -5077,6 +5127,9 @@ func (api *Api) BillingPortalSessionHandler(w http.ResponseWriter, r *http.Reque
 	params := &stripe.BillingPortalSessionParams{
 		Customer:  stripe.String(user.StripeCustomerId),
 		ReturnURL: stripe.String(request.ReturnURL),
+	}
+	if cfgID := strings.TrimSpace(api.Controller.Options.StripeBillingPortalConfigurationId); cfgID != "" {
+		params.Configuration = stripe.String(cfgID)
 	}
 
 	portalSession, err := billingportalsession.New(params)

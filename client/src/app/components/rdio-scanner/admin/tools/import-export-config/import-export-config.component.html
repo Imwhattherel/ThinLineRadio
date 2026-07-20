@@ -1,7 +1,7 @@
 <div>
     <p>
         <span class="mat-body">Import config</span><br>
-        <span class="mat-caption">Import a JSON file into the configuration panel where you can then review it before submitting it.</span>
+        <span class="mat-caption">Import a JSON file, choose which sections to include, then review the merged configuration before saving.</span>
     </p>
     <button mat-raised-button (click)="input.click()">Import for Review</button>
     <input #input type="file" style="display: none" (change)="import($event)">

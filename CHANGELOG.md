@@ -1,15 +1,99 @@
 # Change log
 
+## Version 26.07.19 - Released July 19, 2026
+
+### Added
+
+- **Incident mapping — smarter free geocoding (OSM → TIGER → Census)**
+  - Local geocode chain tries imported OSM address points, TIGER/Line house-number interpolation, then the free **US Census** geocoder (cached per system) before giving up.
+  - Dispatch-aware query tuning: city-noise stripping, state-route aliases, street-suffix variants, ASR typo maps (separate from admin STT corrections), and highway intersection bias.
+  - Census matches outside the configured coverage radius are rejected.
+  - Optional **Geocodify** API key (Admin → Incident Mapping) as a cached last-resort fallback for the local engine.
+
+- **Incident mapping — TIGER/Line county import**
+  - Import Census TIGER/Line ADDRFEAT segments per county for house-number interpolation along centerlines.
+
+- **Incident mapping — local zero-cost engine (no OpenAI, no Google)**
+  - New **Local** mapping engine that extracts and geocodes entirely inside ThinLine Radio with no external API calls or per-call costs. Selectable per server in Admin → Options → Incident Mapping (**External** OpenAI + Google remains the default).
+  - Built-in **OpenStreetMap importer** (Overpass) seeds streets, address points, and named places per system from the configured Geo center/radius.
+  - Rule-based extractor for addresses, intersections, natures, common names, and apt/unit — no LLM.
+  - Local geocoder resolves coordinates from imported data (address point → intersection → street centroid). Shared guards still apply for highways, conversational noise, and officer narrative.
+  - Console incident map uses **Leaflet** with light, dark, and satellite basemaps and custom tag-colored pins. Engine-specific external fields are hidden when Local is selected.
+
+- **Incident mapping — transcript extract, geocode, and map display**
+  - Geocoding pipeline runs after transcription when mapping is enabled; stores address and coordinates on calls.
+  - Per-system and per-talkgroup mapping config, known streets/places, STT corrections, geocode cache, and address-point import.
+  - Admin → Options → **Incident Mapping**; console **Map** tab and map-pin icons on alerts; `GET /api/incidents` and admin mapping APIs.
+
+- **Incident mapping — call natures and unknown-pin control**
+  - Admin → **Call Natures** panel for keyword/phrase classification used on map pins.
+  - Optional **suppress unknown nature pins** toggle: when on, catch-all / unclassified natures skip geocode and map pins.
+
+- **Incident mapping — talkgroup and tone-set location assignment**
+  - Assign default locations for systems, talkgroups, and tone sets when transcripts lack a street address.
+
+- **Admin → Thinline Radio Services**
+  - Relay account sign-in, portal deep links to `https://app.thinlineradio.com`, live billing status refresh (poll + focus + post-checkout), and push-plan enforcement notice (effective **August 20, 2026**).
+  - Relay billing webhook (`POST /api/webhook/relay-billing`) keeps TLR subscription state in sync after Stripe plan changes.
+
+- **Admin → External Integrations — Gemini API key**
+  - Shared Gemini key under Integrations (same stored field as transcription); saving the key alone does not enable STT or restart the transcription queue unless Gemini is the active provider.
+
+- **Transcription — Gemini provider**
+  - Gemini speech-to-text option alongside existing Whisper / Hydra paths.
+
+- **Admin → Users — Per-system and per-API-key no-audio alert assignment**
+  - Multi-select **systems** and **API keys** for which a non-admin user can **view** system no-audio and API key/uploader no-audio health alerts.
+  - Optional **Push notifications** checkboxes apply only within those assignments (system admins still receive all health alert push).
+
+- **Admin — Config import review**
+  - Import/export config review and result dialogs with a clearer summary of what will be applied.
+
+### Changed
+
+- **Incident mapping — local engine is rules-only (vLLM removed)**
+  - The **Local** mapping engine no longer calls a self-hosted vLLM/Ollama endpoint for transcript extraction. All local extraction runs through `ExtractLocal` (keyword lists, known streets/places, rule-based address parsers) plus `ApplyExtractGuards` dispatch gating.
+  - Admin → Incident Mapping: removed **Local LLM endpoint** and **Local LLM model** fields; local engine label updated to reflect zero API and zero GPU cost.
+  - Legacy `localLLMURL` / `localLLMModel` keys in saved config are ignored.
+
+- **Incident mapping — nature label quality**
+  - Nature labels are capped and must be anchored in the transcript (rejects invented natures when those words were not spoken).
+  - Local keyword inference prefers the longest matching configured keyword.
+  - OpenAI extraction prompt tightened: short labels only, no invented generic natures.
+
+- **Incident mapping — address extraction robustness**
+  - Better handling of suffixless street names, hyphen-glued house numbers, ambiguous first-token street matches, and unit-location chatter vs direct house+street phrasing.
+  - Fuzzy homonym street snaps are blocked when they would pin the wrong road.
+
+- **System alerts — no-audio visibility**
+  - Non-admin no-audio alert visibility is now driven by admin-assigned system/API key lists on the user (`systemNoAudioAlertSystems`, `apiKeyNoAudioAlertApiKeys`), not scanner or group access scope.
+
+- **Transcription — min call duration bypass**
+  - Short calls bypass the minimum duration floor only for **alerting talkgroups**, not for user alert preferences alone (stops short non-alerting traffic from being transcribed).
+
+- **Nominatim status polling**
+  - Gateway status poll interval reduced from 15 minutes to 2 minutes for faster entitlement feedback in Thinline Radio Services.
+
+### Fixed
+
+- **Incident mapping — local address extraction**
+  - Short house numbers and comma-separated STT phrasing extract correctly for map pins.
+  - Extracted addresses snap to a known street when STT glues a locality onto a gazetteer name.
+  - Built-in fireworks nature markers; caller-reported fireworks no longer mis-map to a generic fire nature.
+  - Push routing for `no_audio` and `api_key_no_audio` alerts respects the same per-user assignments.
+
+---
+
 ## Version 26.06.18 - Released June 18, 2026
 
 ### Added
 
-- **System alerts — scoped visibility, player UI, and per-user push**
-  - Authenticated users can view system health alerts via `GET /api/system-alerts` when they have access to the related system, talkgroup, or API key scope (same rules as call access and user group access). Manual notices remain visible to all authenticated users. Dismiss still requires system admin.
+- **System alerts — visibility, player UI, and per-user push**
+  - Authenticated users can view system and API key no-audio health alerts via `GET /api/system-alerts` (read-only; dismiss still requires system admin). Manual notices visible to all authenticated users.
   - Player Alerts tab: **My alerts**, **System**, and **All** views when the user has system alert access; client-side search across my alerts and system alerts.
   - **Call/transcript alerts** (tone, keyword, transcript) in `GET /api/alerts` are filtered by user and group system/talkgroup access, matching the transcripts list and live call feed; push and preference paths honor the same scope.
   - System admins continue to receive push for all health alerts.
-  - Admin → Users: assign **Push: System No Audio** and **Push: API Key No Audio** per user for targeted push without full system admin access.
+  - Admin → Users: **Push: System No Audio** and **Push: API Key No Audio** toggles for targeted push without full system admin access.
 
 - **Player — Console Transmissions tab**
   - **Recent** and **Search** modes in the console Transmissions panel; archive search is embedded without leaving the console layout.
@@ -25,6 +109,9 @@
 
 - **Player — Layout cleanup**
   - Removed duplicate legacy select component; console and classic player layouts mount exclusively (no dual DOM).
+
+- **Player — Console layout**
+  - New view uses three columns at full height: scanner LCD + controls (left), tab content such as Transmissions and Map (center), recent alerts (right). Side rails no longer stack above the tabs.
 
 ### Fixed
 

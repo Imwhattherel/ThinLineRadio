@@ -452,6 +452,18 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
+	if err := migrateIncidentMapping(db); err != nil {
+		return formatError(err, "")
+	}
+
+	if err := migrateCallNatures(db); err != nil {
+		return formatError(err, "")
+	}
+
+	if err := migrateKeywordAlertUnique(db); err != nil {
+		return formatError(err, "")
+	}
+
 	return nil
 }
 

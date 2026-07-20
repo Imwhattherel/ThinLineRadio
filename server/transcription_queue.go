@@ -21,6 +21,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"rdio-scanner/server/mapping"
 )
 
 // TranscriptionJob represents a job in the transcription queue
@@ -87,6 +89,17 @@ func NewTranscriptionQueue(controller *Controller, config TranscriptionConfig) *
 		queue.provider = NewGoogleTranscription(&GoogleConfig{
 			APIKey:      config.GoogleAPIKey,
 			Credentials: config.GoogleCredentials,
+		})
+	case "gemini":
+		apiKey := strings.TrimSpace(config.GeminiAPIKey)
+		if apiKey == "" {
+			// Convenience: reuse Google API key when Gemini key is unset.
+			apiKey = strings.TrimSpace(config.GoogleAPIKey)
+		}
+		queue.provider = NewGeminiTranscription(&GeminiConfig{
+			APIKey:         apiKey,
+			Model:          config.GeminiModel,
+			TimeoutSeconds: config.TimeoutSeconds,
 		})
 	case "assemblyai":
 		// AssemblyAI
@@ -179,11 +192,37 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 			workerId, job.CallId, systemLabel, talkgroupLabel,
 		))
 
-		// Update call status to processing
-		queue.updateCallTranscriptionStatus(job.CallId, "processing")
-
 		// Get the call to check if it has detected tones
 		call, err := queue.controller.Calls.GetCall(job.CallId)
+
+		// Re-check MinCallDuration here — tone detection may have finished after
+		// the job was queued, so remaining-after-tones can now fall below the floor.
+		if call != nil {
+			if len(job.OriginalAudio) > 0 {
+				call.OriginalAudio = job.OriginalAudio
+				call.OriginalAudioMime = job.OriginalMime
+			} else if len(job.Audio) > 0 {
+				call.Audio = job.Audio
+				call.AudioMime = job.AudioMime
+			}
+			minDuration := queue.controller.Options.TranscriptionConfig.MinCallDuration
+			if skip, reason, _, derr := queue.controller.transcriptionDurationDecision(call, minDuration); derr == nil && skip {
+				queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+					"[transcription] worker %d | call %d | skipped before STT: %s",
+					workerId, job.CallId, reason,
+				))
+				if strings.HasPrefix(reason, "tone_only_remaining") {
+					queue.updateCallTranscriptionStatus(job.CallId, "completed")
+				} else {
+					queue.controller.markTranscriptionSkipped(job.CallId, reason)
+					queue.updateCallTranscriptionStatus(job.CallId, "skipped")
+				}
+				continue
+			}
+		}
+
+		// Update call status to processing
+		queue.updateCallTranscriptionStatus(job.CallId, "processing")
 
 		// Use original audio for transcription (avoids double lossy conversion MP3->AAC->WAV)
 		// Falls back to converted audio if original is not available
@@ -218,15 +257,26 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 		// Resolve transcription prompt: talkgroup overrides system which overrides global.
 		// An empty string at any level means "fall through to the next level".
 		resolvedPrompt := queue.controller.Options.TranscriptionConfig.Prompt
+		var promptSystem *System
+		var promptTalkgroup *Talkgroup
 		if system, ok := queue.controller.Systems.GetSystemById(job.SystemId); ok {
+			promptSystem = system
 			if system.TranscriptionPrompt != "" {
 				resolvedPrompt = system.TranscriptionPrompt
 			}
 			if talkgroup, ok := system.Talkgroups.GetTalkgroupById(job.TalkgroupId); ok {
+				promptTalkgroup = talkgroup
 				if talkgroup.TranscriptionPrompt != "" {
 					resolvedPrompt = talkgroup.TranscriptionPrompt
 				}
 			}
+		}
+		if queue.controller.Options.MappingIntegration.SendLocationContext && promptSystem != nil {
+			var toneSeq *ToneSequence
+			if call != nil {
+				toneSeq = call.ToneSequence
+			}
+			resolvedPrompt = appendTranscriptionLocationContext(resolvedPrompt, promptSystem, promptTalkgroup, toneSeq)
 		}
 
 		// Transcribe audio (filtered if tones were present, original otherwise)
@@ -237,6 +287,16 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 			SystemLabel:    systemLabel,
 			TalkgroupLabel: talkgroupLabel,
 			CallID:         job.CallId,
+		}
+		// Gemini has its own short base prompt + JSON schema. Do not also send
+		// the Whisper-style "Transcribe…" custom prompt (duplicate / conflicting).
+		// Keep only the location line when SendLocationContext appended one.
+		if queue.controller.Options.TranscriptionConfig.Provider == "gemini" {
+			transcriptionOpts.InitialPrompt = geminiExtraContext(resolvedPrompt)
+			if promptSystem != nil {
+				mapCfg := resolveIncidentMappingConfig(promptSystem, promptTalkgroup)
+				transcriptionOpts.ExtractAddress = mapCfg.Enabled && mapCfg.ExtractAddressWithGemini
+			}
 		}
 
 		// Add AssemblyAI-specific options if configured
@@ -294,15 +354,19 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 			continue
 		}
 
-		// Clean the transcript of hallucinations before storing and processing
+		// Clean hallucinations, then plain-text normalize before store/alerts/
+		// keywords/geocoding so every consumer sees the same shape.
 		cleanedTranscript, hadHallucinations := queue.controller.cleanTranscript(result.Transcript, job.CallId)
+		cleanedTranscript = mapping.NormalizeTranscriptPlainText(cleanedTranscript)
 
 		// Store cleaned transcription result (include optional summary from Whisper server when present)
+		extractedAddr := mapping.NormalizeTranscriptPlainText(strings.TrimSpace(result.ExtractedAddress))
 		cleanedResult := &TranscriptionResult{
-			Transcript:   cleanedTranscript,
-			Confidence:   result.Confidence,
-			Language:     result.Language,
-			AlertSummary: strings.TrimSpace(result.AlertSummary),
+			Transcript:       cleanedTranscript,
+			Confidence:       result.Confidence,
+			Language:         result.Language,
+			AlertSummary:     strings.TrimSpace(result.AlertSummary),
+			ExtractedAddress: extractedAddr,
 		}
 		go queue.storeTranscription(job.CallId, cleanedResult)
 
@@ -451,6 +515,25 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 		// Process keywords if needed - use cleaned transcript
 		go queue.processKeywords(job.CallId, job.SystemId, job.TalkgroupId, cleanedResult)
 
+		go func() {
+			if queue.controller.IncidentMappingQueue == nil {
+				return
+			}
+			toneWaitStart := time.Now()
+			mappingCall := queue.controller.callForIncidentMapping(job.CallId, cleanedTranscript)
+			if mappingCall == nil {
+				return
+			}
+			if extractedAddr != "" {
+				mappingCall.ExtractedAddress = extractedAddr
+			}
+			if toneWait := time.Since(toneWaitStart); toneWait > 2*time.Second {
+				queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+					"incident mapping call %d: waited %.1fs for tone match before mapping started", job.CallId, toneWait.Seconds()))
+			}
+			queue.controller.IncidentMappingQueue.ProcessCall(mappingCall, cleanedTranscript)
+		}()
+
 		// Auto-learn tone sets (observe patterns, auto-add or log after N voiced calls)
 		go func() {
 			if postCall != nil {
@@ -517,9 +600,10 @@ func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *Trans
 
 	// Update call table (and optional alert summary when provided by Whisper server)
 	transcript := strings.ToUpper(result.Transcript) // Ensure ALL CAPS
+	extracted := strings.ToUpper(strings.TrimSpace(result.ExtractedAddress))
 	if queue.controller.Database.Config.DbType == DbTypePostgresql {
-		query := `UPDATE "calls" SET "transcript" = $1, "transcriptConfidence" = $2, "transcriptionStatus" = 'completed', "alertSummary" = $4 WHERE "callId" = $3`
-		if _, err := queue.controller.Database.Sql.Exec(query, transcript, result.Confidence, callId, result.AlertSummary); err != nil {
+		query := `UPDATE "calls" SET "transcript" = $1, "transcriptConfidence" = $2, "transcriptionStatus" = 'completed', "alertSummary" = $4, "extractedAddress" = $5 WHERE "callId" = $3`
+		if _, err := queue.controller.Database.Sql.Exec(query, transcript, result.Confidence, callId, result.AlertSummary, extracted); err != nil {
 			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to update call transcript: %v", err))
 		}
 	}
@@ -710,6 +794,9 @@ func (queue *TranscriptionQueue) processKeywords(callId uint64, systemId uint64,
 			// Batch-store all keyword matches for all users in one INSERT instead of
 			// one INSERT per match per user (reduces N×M round-trips to 1).
 			queue.storeKeywordMatchesBatch(callId, group.userIds, matches)
+
+			// One alert row per call — must run synchronously before per-user goroutines.
+			queue.controller.AlertEngine.UpsertKeywordAlert(callId, systemId, talkgroupId, matches, result)
 
 			for _, userId := range group.userIds {
 				queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("found %d keyword matches for user %d on call %d", len(matches), userId, callId))

@@ -232,6 +232,98 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
+     Incident Mapping
+══════════════════════════════════════════════════════════════ -->
+<div class="settings-card" formGroupName="incidentMapping">
+    <h4 class="section-label"><mat-icon>map</mat-icon> Incident Mapping</h4>
+    <div class="settings-grid">
+        <div class="settings-field settings-field--toggle settings-field--wide">
+            <div class="toggle-row">
+                <label class="field-label">Enabled</label>
+                <mat-slide-toggle color="primary" formControlName="enabled"></mat-slide-toggle>
+            </div>
+            <span class="field-hint">Extract addresses from transcripts and geocode incidents for this system.</span>
+        </div>
+
+        <ng-container *ngIf="form.get('incidentMapping.enabled')?.value">
+            <div class="settings-field">
+                <label class="field-label">Geo city</label>
+                <mat-form-field appearance="outline" class="compact-field">
+                    <input type="text" matInput formControlName="geoCity" placeholder="e.g. Warren, OH" autocomplete="off">
+                </mat-form-field>
+            </div>
+            <div class="settings-field">
+                <label class="field-label">Center latitude</label>
+                <mat-form-field appearance="outline" class="compact-field">
+                    <input type="number" step="any" matInput formControlName="geoLat" autocomplete="off">
+                </mat-form-field>
+            </div>
+            <div class="settings-field">
+                <label class="field-label">Center longitude</label>
+                <mat-form-field appearance="outline" class="compact-field">
+                    <input type="number" step="any" matInput formControlName="geoLon" autocomplete="off">
+                </mat-form-field>
+            </div>
+            <div class="settings-field">
+                <label class="field-label">Geo radius (miles)</label>
+                <mat-form-field appearance="outline" class="compact-field">
+                    <input type="number" min="0" step="any" matInput formControlName="geoRadiusMiles" autocomplete="off">
+                </mat-form-field>
+            </div>
+            <div class="settings-field settings-field--wide">
+                <label class="field-label">Location context</label>
+                <mat-form-field appearance="outline" class="compact-field">
+                    <input type="text" matInput formControlName="locationContext" placeholder="County, state hint" autocomplete="off">
+                </mat-form-field>
+            </div>
+
+            <div class="settings-field settings-field--toggle settings-field--wide">
+                <div class="toggle-row">
+                    <label class="field-label">Extract address with Gemini</label>
+                    <mat-slide-toggle color="primary" formControlName="extractAddressWithGemini"></mat-slide-toggle>
+                </div>
+                <span class="field-hint">When transcription uses Gemini Flash-Lite, also extract a short scene address / place name and send that to the geocode gateway instead of the full transcript.</span>
+            </div>
+
+            <div class="settings-field settings-field--wide">
+                <label class="field-label">Talkgroup locations</label>
+                <span class="field-hint" style="display: block; margin-bottom: 8px;">
+                    Bulk-assign a map jurisdiction to each talkgroup (city, lat/lon, radius). Applying turns off inherit
+                    for that talkgroup. Clear a row to return it to system geo.
+                </span>
+                <button mat-stroked-button type="button" color="primary" [disabled]="!systemId" (click)="openTalkgroupLocationDialog()">
+                    <mat-icon>place</mat-icon>
+                    Assign locations to talkgroups
+                </button>
+                <span class="field-hint" *ngIf="!systemId" style="display: block; margin-top: 6px; color: #e0a000;">
+                    Save this system to enable talkgroup location assignment.
+                </span>
+            </div>
+
+            <div class="settings-field settings-field--wide">
+                <label class="field-label">Tone set locations</label>
+                <span class="field-hint" style="display: block; margin-bottom: 8px;">
+                    Assign a map jurisdiction to each tone set (city, township, zip, etc.). When a tone set matches on a call,
+                    its location is used for incident mapping instead of the parent talkgroup.
+                </span>
+                <button mat-stroked-button type="button" color="primary" [disabled]="!systemId" (click)="openToneSetLocationDialog()">
+                    <mat-icon>place</mat-icon>
+                    Assign locations to tone sets
+                </button>
+                <span class="field-hint" *ngIf="!systemId" style="display: block; margin-top: 6px; color: #e0a000;">
+                    Save this system to enable tone set location assignment.
+                </span>
+            </div>
+        </ng-container>
+    </div>
+
+    <rdio-scanner-admin-mapping-data
+        *ngIf="form.get('incidentMapping.enabled')?.value"
+        [systemId]="systemId">
+    </rdio-scanner-admin-mapping-data>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
      Talkgroups
 ══════════════════════════════════════════════════════════════ -->
 <div class="sub-section">

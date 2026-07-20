@@ -64,6 +64,7 @@ type System struct {
 	AutoLearnUnitAliasesTagIds      []uint64 `json:"autoLearnUnitAliasesTagIds"`
 	AutoLearnUnitAliasesAutoOffDays uint     `json:"autoLearnUnitAliasesAutoOffDays"` // 0 = no auto-off
 	AutoLearnUnitAliasesExpiresAt   int64    `json:"autoLearnUnitAliasesExpiresAt"`   // unix ms
+	IncidentMapping                 IncidentMappingConfig `json:"incidentMapping"`
 }
 
 func NewSystem() *System {
@@ -259,6 +260,10 @@ func (system *System) FromMap(m map[string]any) *System {
 		system.AutoLearnUnitAliasesTagIds = parseBulkToneTagIds(v)
 	}
 
+	if v, ok := m["incidentMapping"].(map[string]any); ok {
+		applyIncidentMappingFromMap(&system.IncidentMapping, v)
+	}
+
 	return system
 }
 
@@ -332,6 +337,8 @@ func (system *System) MarshalJSON() ([]byte, error) {
 	if system.AutoLearnUnitAliasesExpiresAt > 0 {
 		m["autoLearnUnitAliasesExpiresAt"] = system.AutoLearnUnitAliasesExpiresAt
 	}
+
+	m["incidentMapping"] = incidentMappingToMap(system.IncidentMapping)
 
 	return json.Marshal(m)
 }
@@ -848,6 +855,13 @@ func (systems *Systems) Read(db *Database) error {
 		return systems.List[i].Order < systems.List[j].Order
 	})
 
+	if err := systems.loadIncidentMappingConfigs(db); err != nil {
+		return formatError(err, "loadIncidentMappingConfigs")
+	}
+	if err := systems.loadTalkgroupIncidentMappingConfigs(db); err != nil {
+		return formatError(err, "loadTalkgroupIncidentMappingConfigs")
+	}
+
 	return nil
 }
 
@@ -1055,6 +1069,10 @@ func (systems *Systems) Write(db *Database) error {
 		)`
 	if _, err := db.Sql.Exec(cleanupQuery); err != nil {
 		log.Printf("systems.write: cleanup userAlertPreferences failed: %v", err)
+	}
+
+	if err := systems.saveIncidentMappingConfigs(db); err != nil {
+		return formatError(err, "saveIncidentMappingConfigs")
 	}
 
 	return nil

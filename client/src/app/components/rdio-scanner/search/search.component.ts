@@ -344,7 +344,7 @@ export class RdioScannerSearchComponent implements AfterViewInit, OnDestroy {
         this.refreshLoadMoreObserver();
     }
 
-    /** Reset the results scroll viewport (classic search sidenav open). */
+    /** Reset the archive results scroll viewport. */
     scrollResultsToTop(): void {
         const el = this.archiveScroll?.nativeElement;
         if (el) {

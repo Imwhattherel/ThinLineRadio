@@ -21,11 +21,71 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+// anyToFloat64 coerces JSON map values (float64 / int / json.Number / string) to float64.
+func anyToFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f, err == nil
+	default:
+		return 0, false
+	}
+}
+
+// anyToBool coerces JSON map values to bool (bool / 0|1 / "true"|"false").
+func anyToBool(v any) (bool, bool) {
+	switch n := v.(type) {
+	case bool:
+		return n, true
+	case float64:
+		return n != 0, true
+	case int:
+		return n != 0, true
+	case int64:
+		return n != 0, true
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return false, false
+		}
+		return i != 0, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(n)) {
+		case "true", "1", "yes", "on":
+			return true, true
+		case "false", "0", "no", "off":
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
 
 type Options struct {
 	AudioConversion             uint   `json:"audioConversion"`
@@ -82,6 +142,10 @@ type Options struct {
 	StripePublishableKey          string              `json:"stripePublishableKey"`
 	StripeSecretKey               string              `json:"stripeSecretKey"`
 	StripeWebhookSecret           string              `json:"stripeWebhookSecret"`
+	// StripeBillingPortalConfigurationId is optional (bpc_…). When set, Manage
+	// billing opens that Customer Portal config so scanner products stay
+	// separate from operator plans on a shared Stripe account.
+	StripeBillingPortalConfigurationId string           `json:"stripeBillingPortalConfigurationId"`
 	StripeGracePeriodDays         uint                `json:"stripeGracePeriodDays"`
 	StripePriceId                 string              `json:"stripePriceId"`
 	BaseUrl                       string              `json:"baseUrl"`
@@ -90,6 +154,7 @@ type Options struct {
 	AndroidPlayStoreURL string `json:"androidPlayStoreUrl"`
 	TranscriptionConfig           TranscriptionConfig `json:"transcriptionConfig"`
 	OpenAIIntegration             OpenAIIntegration   `json:"openAIIntegration"`
+	MappingIntegration            MappingIntegration  `json:"mappingIntegration"`
 	AutoLearnToneSetConfig        AutoLearnToneSetConfig `json:"autoLearnToneSetConfig"`
 	TranscriptionEnhancement      bool                `json:"transcriptionEnhancement"`
 	TranscriptionFailureThreshold uint                `json:"transcriptionFailureThreshold"`
@@ -113,7 +178,7 @@ type Options struct {
 	TranscriptionFailureRepeatMinutes uint   `json:"transcriptionFailureRepeatMinutes"`
 	ToneDetectionRepeatMinutes        uint   `json:"toneDetectionRepeatMinutes"`
 	NoAudioRepeatMinutes              uint   `json:"noAudioRepeatMinutes"`
-	RelayServerURL                    string `json:"relayServerURL"`
+	RelayServerURL                    string `json:"relayServerURL"` // always getRelayServerURL(); persisted for compatibility only
 	RelayServerAPIKey                 string `json:"relayServerAPIKey"`
 	// After a successful one-time POST of all listener emails to the relay, this stays true (persisted).
 	RelayListenerEmailsInitialSyncDone bool `json:"relayListenerEmailsInitialSyncDone"`
@@ -162,6 +227,12 @@ type Options struct {
 	// Hydra transcription integration (provisioned from Central Management)
 	HydraAPIKey               string `json:"hydraAPIKey"`               // Hydra API key for transcription retrieval
 	HydraTranscriptionEnabled bool   `json:"hydraTranscriptionEnabled"` // Per-server toggle for Hydra transcription
+	// Relay account sign-in (see relay_account.go). Requires RelayServerURL +
+	// RelayServerAPIKey above to already be configured. Password is never
+	// persisted — only used once at login/migrate time to obtain this
+	// refresh token, which is what re-authenticates silently after restart.
+	RelayAccountUsername     string `json:"relayAccountUsername"`
+	RelayAccountRefreshToken string `json:"relayAccountRefreshToken"`
 	adminPassword             string
 	adminPasswordNeedChange   bool
 	mutex                     sync.Mutex
@@ -171,7 +242,7 @@ type Options struct {
 // TranscriptionConfig contains configuration for transcription
 type TranscriptionConfig struct {
 	Enabled                     bool     `json:"enabled"`
-	Provider                    string   `json:"provider"` // "whisper-api", "azure", "google", "assemblyai", "cloudflare"
+	Provider                    string   `json:"provider"` // "whisper-api", "azure", "google", "assemblyai", "cloudflare", "gemini"
 	Language                    string   `json:"language"` // "en", "auto"
 	Prompt                      string   `json:"prompt"`   // Custom prompt for Whisper to guide transcription (e.g., terminology, formatting)
 	WorkerPoolSize              int      `json:"workerPoolSize"`
@@ -183,6 +254,8 @@ type TranscriptionConfig struct {
 	AzureRegion                 string   `json:"azureRegion"`                 // Azure Speech Services region (e.g., "eastus", "westus2")
 	GoogleAPIKey                string   `json:"googleAPIKey"`                // Google Cloud Speech-to-Text API key
 	GoogleCredentials           string   `json:"googleCredentials"`           // Google Cloud service account JSON credentials (alternative to API key)
+	GeminiAPIKey                string   `json:"geminiAPIKey"`                // Google AI Studio / Gemini API key
+	GeminiModel                 string   `json:"geminiModel"`                 // Gemini model id (default gemini-3.1-flash-lite)
 	AssemblyAIKey               string   `json:"assemblyAIKey"`               // AssemblyAI API key
 	AssemblyAISpeechModel       string   `json:"assemblyAISpeechModel"`       // Speech model for AssemblyAI: "universal-2" (default) or "universal-3-pro"
 	AssemblyAIWordBoost         []string `json:"assemblyAIWordBoost"`         // Sent as AssemblyAI keyterms_prompt (max 100 terms, 50 chars each)
@@ -199,6 +272,9 @@ type TranscriptionConfig struct {
 	// until transcription is complete).  Default: 300 seconds (5 minutes).  Set higher for very
 	// slow CPUs.  0 = use default.
 	TimeoutSeconds int `json:"timeoutSeconds"`
+	// SendLocationContext appends talkgroup/system incident-mapping location
+	// context (LocationContext / GeoCity) to the STT prompt when available.
+	SendLocationContext bool `json:"sendLocationContext"`
 	// Whisper training export — reviewed transcripts sent to transcript-collector on approve.
 	CollectorURL    string `json:"collectorURL"`
 	CollectorAPIKey string `json:"collectorAPIKey"`
@@ -218,6 +294,15 @@ const (
 	AUDIO_CONVERSION_ENABLED_NORM      = 2 // loudnorm (auto target)
 	AUDIO_CONVERSION_ENABLED_LOUD_NORM = 3 // loudnorm I=-16 (louder target)
 )
+
+const relayServerBaseURL = "https://app.thinlineradio.com"
+
+// getRelayServerURL returns the fixed relay server base URL. All TLR instances
+// talk to app.thinlineradio.com; any relayServerURL value stored in options is
+// ignored at runtime and rewritten on load/save.
+func getRelayServerURL() string {
+	return relayServerBaseURL
+}
 
 // getRelayServerAuthKey returns the authorization key for relay server API requests
 // This is derived from a hash to avoid exposing the key directly in source code
@@ -575,6 +660,13 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.StripeWebhookSecret = defaults.options.stripeWebhookSecret
 	}
 
+	switch v := m["stripeBillingPortalConfigurationId"].(type) {
+	case string:
+		options.StripeBillingPortalConfigurationId = v
+	default:
+		options.StripeBillingPortalConfigurationId = defaults.options.stripeBillingPortalConfigurationId
+	}
+
 	switch v := m["stripeGracePeriodDays"].(type) {
 	case float64:
 		options.StripeGracePeriodDays = uint(v)
@@ -675,18 +767,27 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.ToneDetectionIssueThreshold = defaults.options.toneDetectionIssueThreshold
 	}
 
-	switch v := m["relayServerURL"].(type) {
-	case string:
-		options.RelayServerURL = v
-	default:
-		options.RelayServerURL = ""
-	}
+	options.RelayServerURL = getRelayServerURL()
 
 	switch v := m["relayServerAPIKey"].(type) {
 	case string:
 		options.RelayServerAPIKey = v
 	default:
 		options.RelayServerAPIKey = ""
+	}
+
+	switch v := m["relayAccountUsername"].(type) {
+	case string:
+		options.RelayAccountUsername = v
+	default:
+		options.RelayAccountUsername = ""
+	}
+
+	switch v := m["relayAccountRefreshToken"].(type) {
+	case string:
+		options.RelayAccountRefreshToken = v
+	default:
+		options.RelayAccountRefreshToken = ""
 	}
 
 	switch v := m["relayListenerEmailsInitialSyncDone"].(type) {
@@ -914,7 +1015,7 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		if v, ok := tc["workerPoolSize"].(float64); ok && v > 0 {
 			options.TranscriptionConfig.WorkerPoolSize = int(v)
 		}
-		if v, ok := tc["minCallDuration"].(float64); ok {
+		if v, ok := anyToFloat64(tc["minCallDuration"]); ok {
 			options.TranscriptionConfig.MinCallDuration = v
 		}
 		if v, ok := tc["whisperAPIURL"].(string); ok {
@@ -937,6 +1038,12 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 		if v, ok := tc["googleCredentials"].(string); ok {
 			options.TranscriptionConfig.GoogleCredentials = v
+		}
+		if v, ok := tc["geminiAPIKey"].(string); ok {
+			options.TranscriptionConfig.GeminiAPIKey = v
+		}
+		if v, ok := tc["geminiModel"].(string); ok {
+			options.TranscriptionConfig.GeminiModel = v
 		}
 		if v, ok := tc["assemblyAIKey"].(string); ok {
 			options.TranscriptionConfig.AssemblyAIKey = v
@@ -983,10 +1090,24 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		if v, ok := tc["timeoutSeconds"].(float64); ok && v > 0 {
 			options.TranscriptionConfig.TimeoutSeconds = int(v)
 		}
+		// Legacy: sendLocationContext used to live under transcriptionConfig.
+		// Prefer mappingIntegration when present; otherwise migrate from here.
+		if v, ok := anyToBool(tc["sendLocationContext"]); ok {
+			options.TranscriptionConfig.SendLocationContext = v
+		}
 	}
 
 	if oai, ok := m["openAIIntegration"].(map[string]any); ok {
 		applyOpenAIIntegrationFromMap(&options.OpenAIIntegration, oai)
+	}
+
+	mappingHadSendLocation := false
+	if mi, ok := m["mappingIntegration"].(map[string]any); ok {
+		_, mappingHadSendLocation = mi["sendLocationContext"]
+		applyMappingIntegrationFromMap(&options.MappingIntegration, mi)
+	}
+	if !mappingHadSendLocation && options.TranscriptionConfig.SendLocationContext {
+		options.MappingIntegration.SendLocationContext = true
 	}
 
 	if alc, ok := m["autoLearnToneSetConfig"].(map[string]any); ok {
@@ -1006,6 +1127,46 @@ func applyOpenAIIntegrationFromMap(cfg *OpenAIIntegration, m map[string]any) {
 	}
 	if v, ok := m["model"].(string); ok {
 		cfg.Model = v
+	}
+}
+
+func applyMappingIntegrationFromMap(cfg *MappingIntegration, m map[string]any) {
+	if v, ok := m["geocodeCacheMaxAgeDays"].(float64); ok {
+		cfg.GeocodeCacheMaxAgeDays = uint(v)
+	}
+	if v, ok := m["autoLearnKnownPlaces"].(bool); ok {
+		cfg.AutoLearnKnownPlaces = v
+	}
+	if v, ok := m["maxGeocodeCandidatesPerCall"].(float64); ok {
+		cfg.MaxGeocodeCandidates = uint(v)
+	}
+	if v, ok := m["openAIModel"].(string); ok {
+		cfg.OpenAIModel = v
+	}
+	if v, ok := m["mappingEngine"].(string); ok {
+		cfg.MappingEngine = v
+	}
+	if v, ok := m["callNatureOpenAIClassify"].(bool); ok {
+		cfg.CallNatureOpenAIClassify = v
+		cfg.CallNatureOpenAIClassifyConfigured = true
+	}
+	if v, ok := anyToBool(m["suppressUnknownNaturePins"]); ok {
+		cfg.SuppressUnknownNaturePins = v
+	}
+	if v, ok := m["mapBoundariesEnabled"].(bool); ok {
+		cfg.MapBoundariesEnabled = v
+	}
+	if v, ok := m["mapBoundaryLayers"].([]any); ok {
+		var layers []string
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				layers = append(layers, strings.TrimSpace(s))
+			}
+		}
+		cfg.MapBoundaryLayers = layers
+	}
+	if v, ok := anyToBool(m["sendLocationContext"]); ok {
+		cfg.SendLocationContext = v
 	}
 }
 
@@ -1516,6 +1677,13 @@ func (options *Options) Read(db *Database) error {
 					options.StripeWebhookSecret = v
 				}
 			}
+		case "stripeBillingPortalConfigurationId":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.StripeBillingPortalConfigurationId = v
+				}
+			}
 		case "stripePriceId":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
@@ -1553,6 +1721,11 @@ func (options *Options) Read(db *Database) error {
 			var cfg OpenAIIntegration
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
 				options.OpenAIIntegration = cfg
+			}
+		case "mappingIntegration":
+			var raw map[string]any
+			if err := json.Unmarshal([]byte(value.String), &raw); err == nil {
+				applyMappingIntegrationFromMap(&options.MappingIntegration, raw)
 			}
 		case "autoLearnToneSetConfig":
 			var raw map[string]json.RawMessage
@@ -1702,17 +1875,26 @@ func (options *Options) Read(db *Database) error {
 				}
 			}
 		case "relayServerURL":
-			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
-				switch v := f.(type) {
-				case string:
-					options.RelayServerURL = v
-				}
-			}
+			// Ignored — always app.thinlineradio.com (see getRelayServerURL).
 		case "relayServerAPIKey":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
 				case string:
 					options.RelayServerAPIKey = v
+				}
+			}
+		case "relayAccountUsername":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.RelayAccountUsername = v
+				}
+			}
+		case "relayAccountRefreshToken":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.RelayAccountRefreshToken = v
 				}
 			}
 		case "relayListenerEmailsInitialSyncDone":
@@ -1851,6 +2033,8 @@ func (options *Options) Read(db *Database) error {
 		}
 	}
 
+	options.RelayServerURL = getRelayServerURL()
+
 	options.AutoLearnToneSetConfig.normalize()
 	if migrateLegacyAutoLearnToneDurations(&options.AutoLearnToneSetConfig) {
 		cfg := options.AutoLearnToneSetConfig
@@ -1957,6 +2141,7 @@ func (options *Options) Write(db *Database) error {
 	set("stripePublishableKey", options.StripePublishableKey)
 	set("stripeSecretKey", options.StripeSecretKey)
 	set("stripeWebhookSecret", options.StripeWebhookSecret)
+	set("stripeBillingPortalConfigurationId", options.StripeBillingPortalConfigurationId)
 	set("stripeGracePeriodDays", options.StripeGracePeriodDays)
 	set("stripePriceId", options.StripePriceId)
 	set("baseUrl", options.BaseUrl)
@@ -1978,8 +2163,10 @@ func (options *Options) Write(db *Database) error {
 	set("transcriptionFailureRepeatMinutes", options.TranscriptionFailureRepeatMinutes)
 	set("toneDetectionRepeatMinutes", options.ToneDetectionRepeatMinutes)
 	set("noAudioRepeatMinutes", options.NoAudioRepeatMinutes)
-	set("relayServerURL", options.RelayServerURL)
+	set("relayServerURL", getRelayServerURL())
 	set("relayServerAPIKey", options.RelayServerAPIKey)
+	set("relayAccountUsername", options.RelayAccountUsername)
+	set("relayAccountRefreshToken", options.RelayAccountRefreshToken)
 	set("relayListenerEmailsInitialSyncDone", options.RelayListenerEmailsInitialSyncDone)
 	set("relayOwnerUnlockedPublicClient", options.RelayOwnerUnlockedPublicClient)
 	set("audioEncryptionEnabled", options.AudioEncryptionEnabled)
@@ -2002,6 +2189,7 @@ func (options *Options) Write(db *Database) error {
 	// Persist entire transcription config as a single JSON blob
 	set("transcriptionConfig", options.TranscriptionConfig)
 	set("openAIIntegration", options.OpenAIIntegration)
+	set("mappingIntegration", options.MappingIntegration)
 	set("autoLearnToneSetConfig", options.AutoLearnToneSetConfig)
 	set("transcriptionEnhancement", options.TranscriptionEnhancement)
 	set("transcriptParserConfig", options.TranscriptParserConfig)
@@ -2065,17 +2253,47 @@ func (options *Options) ApplyPartial(db *Database, partial map[string]any) error
 // restarting the transcription worker queue. The active provider and its credentials
 // are fixed when the queue is created; changing them via PATCH must restart the queue
 // without clearing stored settings for other providers.
+//
+// A geminiAPIKey/geminiModel-only nested update does not restart the queue unless
+// Gemini is currently the active STT provider — the key is also used for non-STT
+// features (e.g. location suggest) and may be saved from External Integrations
+// without enabling transcription.
 func OptionsPatchTouchesTranscription(partial map[string]any) bool {
+	return OptionsPatchTouchesTranscriptionWithCurrent(partial, nil)
+}
+
+// OptionsPatchTouchesTranscriptionWithCurrent is like OptionsPatchTouchesTranscription
+// but uses current options to decide whether Gemini credential-only patches need a
+// queue restart.
+func OptionsPatchTouchesTranscriptionWithCurrent(partial map[string]any, current *Options) bool {
 	if partial == nil {
 		return false
 	}
 	if _, ok := partial["transcriptionEnabled"]; ok {
 		return true
 	}
-	if _, ok := partial["transcriptionConfig"]; ok {
-		return true
+	tc, ok := partial["transcriptionConfig"].(map[string]any)
+	if !ok {
+		if _, present := partial["transcriptionConfig"]; present {
+			return true
+		}
+		return false
 	}
-	return false
+	onlyGeminiCreds := len(tc) > 0
+	for k := range tc {
+		if k != "geminiAPIKey" && k != "geminiModel" {
+			onlyGeminiCreds = false
+			break
+		}
+	}
+	if onlyGeminiCreds {
+		if current == nil {
+			return false
+		}
+		return current.TranscriptionConfig.Enabled &&
+			strings.EqualFold(strings.TrimSpace(current.TranscriptionConfig.Provider), "gemini")
+	}
+	return true
 }
 
 // OptionsPatchTouchesNoAudioMonitoring reports whether a partial options update

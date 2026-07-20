@@ -1719,6 +1719,8 @@ func migrateUserAlertPushPreferences(db *Database) error {
 	queries := []string{
 		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushSystemNoAudioAlerts" boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushApiKeyNoAudioAlerts" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "systemNoAudioAlertSystems" text NOT NULL DEFAULT ''`,
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "apiKeyNoAudioAlertApiKeys" text NOT NULL DEFAULT ''`,
 	}
 	for _, query := range queries {
 		if _, err := db.Sql.Exec(query); err != nil {
@@ -3161,6 +3163,35 @@ func migrateSystemDuplicateDetection(db *Database) error {
 	query := `ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "duplicateDetectionEnabled" boolean NOT NULL DEFAULT true`
 	if _, err := db.Sql.Exec(query); err != nil {
 		log.Printf("migration note (system duplicate detection): %v", err)
+	}
+	return nil
+}
+
+// migrateKeywordAlertUnique removes duplicate keyword alert rows (same call) and
+// adds a partial unique index so only one keyword alert can exist per call.
+func migrateKeywordAlertUnique(db *Database) error {
+	if db.Config.DbType != DbTypePostgresql {
+		return nil
+	}
+
+	deleteDupes := `
+		DELETE FROM "alerts" a
+		USING "alerts" b
+		WHERE a."alertType" = 'keyword'
+		  AND b."alertType" = 'keyword'
+		  AND a."callId" = b."callId"
+		  AND a."systemId" = b."systemId"
+		  AND a."talkgroupId" = b."talkgroupId"
+		  AND a."alertId" > b."alertId"`
+	if res, err := db.Sql.Exec(deleteDupes); err != nil {
+		return fmt.Errorf("migrateKeywordAlertUnique dedupe: %w", err)
+	} else if n, err := res.RowsAffected(); err == nil && n > 0 {
+		log.Printf("migrateKeywordAlertUnique: removed %d duplicate keyword alert rows", n)
+	}
+
+	idx := `CREATE UNIQUE INDEX IF NOT EXISTS "alerts_keyword_call_uidx" ON "alerts" ("callId", "systemId", "talkgroupId") WHERE "alertType" = 'keyword'`
+	if _, err := db.Sql.Exec(idx); err != nil {
+		return fmt.Errorf("migrateKeywordAlertUnique index: %w", err)
 	}
 	return nil
 }

@@ -20,7 +20,7 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, BehaviorSubject, of } from 'rxjs';
-import { RdioScannerAlert, RdioScannerAlertPreference, RdioScannerKeywordList } from '../rdio-scanner';
+import { RdioScannerAlert, RdioScannerAlertPreference, RdioScannerIncidentUpdate, RdioScannerKeywordList } from '../rdio-scanner';
 
 export interface RdioScannerSystemAlert {
     id: number;
@@ -298,6 +298,44 @@ export class AlertsService {
         }
         const headers = pin ? new HttpHeaders().set('Authorization', `Bearer ${pin}`) : undefined;
         return this.http.get<GlobalTrainingProgress>(url, { headers });
+    }
+
+    /**
+     * Apply a pushed incident-mapping update to cached alerts for one call.
+     */
+    patchIncidentUpdate(update: RdioScannerIncidentUpdate): boolean {
+        if (!update?.callId) {
+            return false;
+        }
+        let changed = false;
+        this.alertsCache = this.alertsCache.map((alert) => {
+            if (alert.callId !== update.callId) {
+                return alert;
+            }
+            changed = true;
+            const next = { ...alert };
+            if (update.incidentAddress !== undefined) {
+                next.incidentAddress = update.incidentAddress;
+            }
+            if (update.incidentNature !== undefined) {
+                next.incidentNature = update.incidentNature;
+            }
+            if (update.incidentLat !== undefined) {
+                next.incidentLat = update.incidentLat;
+            }
+            if (update.incidentLon !== undefined) {
+                next.incidentLon = update.incidentLon;
+            }
+            if (update.incidentGeocodeStatus !== undefined) {
+                next.incidentGeocodeStatus = update.incidentGeocodeStatus;
+            }
+            return next;
+        });
+        if (changed) {
+            this.alertsSubject.next([...this.alertsCache]);
+            this.writeSessionCache();
+        }
+        return changed;
     }
 
     getPreferences(pin?: string): Observable<RdioScannerAlertPreference[]> {

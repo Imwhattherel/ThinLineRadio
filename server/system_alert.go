@@ -91,23 +91,26 @@ func (controller *Controller) CreateSystemAlert(alertType, severity, title, mess
 
 // SendSystemAlertNotification sends a push notification for system alerts.
 // Manual alerts go to all verified users.
-// System no-audio alerts go to system admins and users with pushSystemNoAudioAlerts.
-// API key no-audio alerts go to system admins and users with pushApiKeyNoAudioAlerts.
+// System/API key no-audio alerts go to system admins and users with push enabled
+// for the specific assigned system or API key.
 // Other health alerts go to system admins only.
 func (controller *Controller) SendSystemAlertNotification(title, message, alertType, severity, dataJSON string) {
 	var query string
 	var targetDescription string
+	filterByAssignment := false
 
 	switch alertType {
 	case "manual":
 		query = `SELECT "userId" FROM "users" WHERE "verified" = true`
 		targetDescription = "verified users"
 	case "no_audio", "no_audio_received":
-		query = `SELECT "userId" FROM "users" WHERE "systemAdmin" = true OR "pushSystemNoAudioAlerts" = true`
+		query = `SELECT "userId" FROM "users" WHERE "verified" = true AND ("systemAdmin" = true OR "pushSystemNoAudioAlerts" = true)`
 		targetDescription = "system no-audio alert recipients"
+		filterByAssignment = true
 	case "api_key_no_audio":
-		query = `SELECT "userId" FROM "users" WHERE "systemAdmin" = true OR "pushApiKeyNoAudioAlerts" = true`
+		query = `SELECT "userId" FROM "users" WHERE "verified" = true AND ("systemAdmin" = true OR "pushApiKeyNoAudioAlerts" = true)`
 		targetDescription = "API key no-audio alert recipients"
+		filterByAssignment = true
 	default:
 		query = `SELECT "userId" FROM "users" WHERE "systemAdmin" = true`
 		targetDescription = "system admins"
@@ -125,6 +128,12 @@ func (controller *Controller) SendSystemAlertNotification(title, message, alertT
 		var userId uint64
 		if err := rows.Scan(&userId); err != nil {
 			continue
+		}
+		if filterByAssignment {
+			user := controller.Users.GetUserById(userId)
+			if !controller.userShouldReceiveSystemAlertPush(user, alertType, dataJSON) {
+				continue
+			}
 		}
 		targetUserIds = append(targetUserIds, userId)
 	}
@@ -313,8 +322,12 @@ func getProviderDisplayName(provider string) string {
 		return "Azure Speech Services"
 	case "google":
 		return "Google Cloud Speech-to-Text"
+	case "gemini":
+		return "Gemini Flash-Lite"
 	case "assemblyai":
 		return "AssemblyAI"
+	case "cloudflare":
+		return "Cloudflare Workers AI"
 	default:
 		// Default fallback if provider is unknown or empty
 		if provider == "" {

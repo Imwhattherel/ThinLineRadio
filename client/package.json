@@ -12,6 +12,7 @@
     "@angular/platform-browser-dynamic": "^15.0.4",
     "@angular/router": "^15.0.4",
     "@angular/service-worker": "^15.0.4",
+    "leaflet": "^1.9.4",
     "rxjs": "~7.5.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.11.4"
@@ -20,6 +21,7 @@
     "@angular-devkit/build-angular": "^15.0.4",
     "@angular/cli": "^15.0.4",
     "@angular/compiler-cli": "^15.0.4",
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^18.11.2",
     "@typescript-eslint/eslint-plugin": "^5.40.1",
     "@typescript-eslint/parser": "^5.40.1",
@@ -43,5 +45,5 @@
     "build": "ng build --base-href ./ --configuration production",
     "start": "ng serve"
   },
-  "version": "26.06.12"
+  "version": "26.07.19"
 }

@@ -19,17 +19,27 @@
 
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { BehaviorSubject, Observable, of } from 'rxjs';
+import { tap } from 'rxjs/operators';
 import { RdioScannerService } from '../rdio-scanner.service';
 
 @Injectable()
 export class SettingsService {
     private readonly apiUrl = '/api/settings';
+    private readonly settings$ = new BehaviorSubject<Record<string, unknown>>({});
 
     constructor(
         private http: HttpClient,
         private rdioScannerService: RdioScannerService,
     ) {
+    }
+
+    watchSettings(): Observable<Record<string, unknown>> {
+        return this.settings$.asObservable();
+    }
+
+    getSettingsValue(): Record<string, unknown> {
+        return this.settings$.value;
     }
 
     private getAuthHeaders(): HttpHeaders {
@@ -52,15 +62,14 @@ export class SettingsService {
         const headers = this.getAuthHeaders();
         
         if (!pin) {
-            // Return empty settings if no PIN
-            return new Observable(observer => {
-                observer.next({});
-                observer.complete();
-            });
+            this.settings$.next({});
+            return of({});
         }
 
         // Include PIN as query parameter or in header
-        return this.http.get<any>(`${this.apiUrl}?pin=${encodeURIComponent(pin)}`, { headers });
+        return this.http.get<any>(`${this.apiUrl}?pin=${encodeURIComponent(pin)}`, { headers }).pipe(
+            tap((settings) => this.settings$.next(settings || {})),
+        );
     }
 
     saveSettings(settings: any): Observable<any> {
@@ -75,7 +84,9 @@ export class SettingsService {
         }
 
         // Include PIN as query parameter or in header
-        return this.http.post<any>(`${this.apiUrl}?pin=${encodeURIComponent(pin)}`, settings, { headers });
+        return this.http.post<any>(`${this.apiUrl}?pin=${encodeURIComponent(pin)}`, settings, { headers }).pipe(
+            tap(() => this.settings$.next(settings || {})),
+        );
     }
 
     // Check if auto livefeed is enabled

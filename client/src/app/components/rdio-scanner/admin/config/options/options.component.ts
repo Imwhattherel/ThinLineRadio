@@ -17,27 +17,67 @@
  * ****************************************************************************
  */
 
-import { Component, Input, OnInit, OnDestroy, OnChanges, SimpleChanges, AfterViewInit, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
-import { FormGroup, FormArray, Validators } from '@angular/forms';
+import { Component, Input, OnInit, OnDestroy, OnChanges, SimpleChanges, AfterViewInit, ChangeDetectorRef, ChangeDetectionStrategy, HostListener } from '@angular/core';
+import { FormGroup, FormArray, Validators, FormBuilder } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatDialog } from '@angular/material/dialog';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { RequestAPIKeyDialogComponent } from './request-api-key-dialog.component';
 import { RecoverAPIKeyDialogComponent } from './recover-api-key-dialog.component';
+import { RelayAccountDialogComponent } from './relay-account-dialog.component';
 import { LocationDataService } from 'src/app/services/location-data.service';
-import { OPENAI_CHAT_MODEL_OPTIONS, OpenAIChatModelOption, RdioScannerAdminService } from '../../admin.service';
+import { OPENAI_CHAT_MODEL_OPTIONS, OpenAIChatModelOption, RELAY_SERVER_URL, RdioScannerAdminService } from '../../admin.service';
+import { MappingBoundaryStats, US_STATE_FIPS_OPTIONS } from '../../../mapping/mapping.types';
 
 export type OptionsPanelId =
     | 'alerts' | 'security' | 'branding' | 'notifications'
-    | 'integrations' | 'general' | 'stripe' | 'transcription' | 'userRegistration';
+    | 'thinlineServices' | 'integrations' | 'general' | 'stripe' | 'transcription' | 'userRegistration' | 'mapping';
 
 interface OptionsPanelDef {
     keys: string[];
     systemsNoAudio?: boolean;
     systemsRetention?: boolean;
     systemsDuplicateDetection?: boolean;
+    /** Track/save transcriptionConfig.geminiAPIKey without owning full transcription config. */
+    sharedGeminiApiKey?: boolean;
 }
+
+interface RelayBillingPlanRow {
+    slug: string;
+    name: string;
+    description: string;
+    price_label: string;
+    status: string;
+    subscribed: boolean;
+    billable: boolean;
+    /** Push is covered by an active Geocoding and Push subscription. */
+    includedWithGeocoding?: boolean;
+}
+
+interface RelayBillingCatalogResponse {
+    plans?: Array<{
+        slug?: string;
+        name?: string;
+        description?: string;
+        price_label?: string;
+        stripe_price_id?: string;
+        active?: boolean;
+    }>;
+    entitlements?: Array<{
+        plan_slug?: string;
+        status?: string;
+    }>;
+    push_plan_enforcement?: {
+        date?: string;
+        active?: boolean;
+        notice?: string;
+    };
+    error?: string;
+}
+
+const DEFAULT_RELAY_PUSH_ENFORCEMENT_NOTICE =
+    'Push notification subscriptions will start being enforced on August 20, 2026. Subscribe to Push Notifications or Geocoding and Push before then to keep mobile push working for this server.';
 
 const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
     alerts: {
@@ -71,11 +111,15 @@ const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
             'emailSmtpUseTLS', 'emailSmtpSkipVerify', 'emailSmtpFromEmail', 'emailSmtpFromName',
         ],
     },
+    thinlineServices: {
+        keys: ['relayServerAPIKey'],
+    },
     integrations: {
         keys: [
             'openAIIntegration', 'radioReferenceEnabled', 'radioReferenceUsername',
-            'radioReferencePassword', 'relayServerAPIKey',
+            'radioReferencePassword',
         ],
+        sharedGeminiApiKey: true,
     },
     general: {
         keys: [
@@ -88,7 +132,7 @@ const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
     stripe: {
         keys: [
             'stripePaywallEnabled', 'stripePublishableKey', 'stripeSecretKey',
-            'stripeWebhookSecret', 'stripeGracePeriodDays',
+            'stripeWebhookSecret', 'stripeBillingPortalConfigurationId', 'stripeGracePeriodDays',
         ],
     },
     transcription: {
@@ -100,6 +144,9 @@ const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
             'emailVerificationRequired', 'turnstileEnabled', 'turnstileSiteKey', 'turnstileSecretKey',
         ],
     },
+    mapping: {
+        keys: [],
+    },
 };
 
 const OPTIONS_PANEL_LABELS: Record<OptionsPanelId, string> = {
@@ -107,11 +154,13 @@ const OPTIONS_PANEL_LABELS: Record<OptionsPanelId, string> = {
     security: 'Audio Settings',
     branding: 'Branding',
     notifications: 'Email',
+    thinlineServices: 'Thinline Radio Services',
     integrations: 'External Integrations',
     general: 'General Settings',
     stripe: 'Stripe Payments',
     transcription: 'Transcription Settings',
     userRegistration: 'User Registration',
+    mapping: 'Incident Mapping',
 };
 
 const OPTIONS_FIELD_LABELS: Record<string, string> = {
@@ -188,6 +237,7 @@ const OPTIONS_FIELD_LABELS: Record<string, string> = {
     stripePublishableKey: 'Stripe publishable key',
     stripeSecretKey: 'Stripe secret key',
     stripeWebhookSecret: 'Stripe webhook secret',
+    stripeBillingPortalConfigurationId: 'Stripe billing portal configuration ID',
     stripeGracePeriodDays: 'Stripe grace period (days)',
     transcriptionEnabled: 'Transcription enabled',
     transcriptionEnhancement: 'Transcription audio enhancement',
@@ -199,6 +249,8 @@ const OPTIONS_FIELD_LABELS: Record<string, string> = {
     'transcriptionConfig.azureRegion': 'Azure region',
     'transcriptionConfig.googleAPIKey': 'Google API key',
     'transcriptionConfig.googleCredentials': 'Google credentials',
+    'transcriptionConfig.geminiAPIKey': 'Gemini API key',
+    'transcriptionConfig.geminiModel': 'Gemini model',
     'transcriptionConfig.assemblyAIKey': 'AssemblyAI key',
     'transcriptionConfig.assemblyAISpeechModel': 'AssemblyAI speech model',
     'transcriptionConfig.assemblyAIWordBoost': 'AssemblyAI word boost',
@@ -258,8 +310,11 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     notificationsExpanded = false;
     userRegistrationExpanded = false;
     stripeExpanded = false;
+    thinlineServicesExpanded = false;
     integrationsExpanded = false;
     securityExpanded = false;
+    mappingExpanded = false;
+    callNaturesExpanded = false;
     
     // Central Management Integration
     centralConnectionStatus: 'success' | 'error' | null = null;
@@ -270,6 +325,16 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     get selectedOpenAIModel(): OpenAIChatModelOption | undefined {
         const id = this.form?.get('openAIIntegration')?.get('model')?.value || 'gpt-5.4-mini';
         return this.openAIChatModels.find(m => m.id === id) || this.openAIChatModels[0];
+    }
+
+    get selectedMappingOpenAIModel(): OpenAIChatModelOption | undefined {
+        const override = this.mappingForm?.get('openAIModel')?.value;
+        const id = override || this.form?.get('openAIIntegration')?.get('model')?.value || 'gpt-5.4-mini';
+        return this.openAIChatModels.find(m => m.id === id) || this.openAIChatModels[0];
+    }
+
+    get mappingUsesDefaultOpenAIModel(): boolean {
+        return !this.mappingForm?.get('openAIModel')?.value;
     }
 
     get isCentrallyManaged(): boolean {
@@ -290,6 +355,28 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         return !!s && s.fully_suspended === true && s.push_notifications_blocked === true;
     }
 
+    /** Populated from GET /api/admin/relay-account/status — sign-in + legacy nominatim status. */
+    relayAccountStatus: {
+        username: string;
+        signedIn: boolean;
+        lastError: string;
+        nominatimSubscriptionStatus: string;
+    } | null = null;
+    relayAccountBusy = false;
+
+    relayBillingPlanRows: RelayBillingPlanRow[] = [];
+    relayBillingLoading = false;
+    relayBillingError = '';
+    relayPlanSubscribingSlug = '';
+    /** Public portal for subscribe / manage billing after relay sign-in. */
+    readonly relayPortalURL = RELAY_SERVER_URL;
+    relayPushEnforcementNotice = DEFAULT_RELAY_PUSH_ENFORCEMENT_NOTICE;
+
+    private relayBillingPollTimer: ReturnType<typeof setInterval> | null = null;
+    private relayBillingWatchTimer: ReturnType<typeof setInterval> | null = null;
+    private previousSubscribedSlugs = new Set<string>();
+    private relayBillingBaselineReady = false;
+
     constructor(
         private snackBar: MatSnackBar,
         private dialog: MatDialog,
@@ -297,12 +384,129 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         private http: HttpClient,
         private cdr: ChangeDetectorRef,
         private adminService: RdioScannerAdminService,
+        private formBuilder: FormBuilder,
     ) {}
 
     /** Per-panel save state for inline feedback. */
     savingPanel: OptionsPanelId | null = null;
 
+    mappingForm!: FormGroup;
+    mappingBaseline = '';
+    savingMapping = false;
+
+    readonly usStateOptions = US_STATE_FIPS_OPTIONS;
+    boundaryImportStates: string[] = ['39'];
+    boundaryImportLayers = { county: true, place: true, cousub: true };
+    boundaryReplaceExisting = true;
+    boundaryImporting = false;
+    boundaryImportProgress = '';
+    boundaryImportPercent = 0;
+    boundaryImportError = '';
+    boundaryImportResult = '';
+    boundaryStats: MappingBoundaryStats | null = null;
+
+    /** Payload for mapping config API — omit UI-only helper fields. */
+    private mappingConfigPayload(): Record<string, unknown> {
+        return { ...(this.mappingForm?.getRawValue() || {}) };
+    }
+
+    async refreshBoundaryStats(): Promise<void> {
+        try {
+            this.boundaryStats = await this.adminService.getBoundaryStats();
+        } catch {
+            this.boundaryStats = null;
+        }
+        this.cdr.markForCheck();
+    }
+
+    selectedBoundaryImportLayers(): string[] {
+        const layers: string[] = [];
+        if (this.boundaryImportLayers.county) {
+            layers.push('county');
+        }
+        if (this.boundaryImportLayers.place) {
+            layers.push('place');
+        }
+        if (this.boundaryImportLayers.cousub) {
+            layers.push('cousub');
+        }
+        return layers;
+    }
+
+    async importBoundaries(): Promise<void> {
+        const stateFips = this.boundaryImportStates.filter((s) => !!s);
+        const layers = this.selectedBoundaryImportLayers();
+        if (!stateFips.length) {
+            this.boundaryImportError = 'Select at least one state.';
+            this.boundaryImportResult = '';
+            return;
+        }
+        if (!layers.length) {
+            this.boundaryImportError = 'Select at least one boundary layer.';
+            this.boundaryImportResult = '';
+            return;
+        }
+        this.boundaryImporting = true;
+        this.boundaryImportError = '';
+        this.boundaryImportResult = '';
+        this.boundaryImportProgress = 'Starting…';
+        this.boundaryImportPercent = 0;
+        this.cdr.markForCheck();
+        try {
+            await this.adminService.startBoundaryImport({
+                stateFips,
+                layers,
+                replaceExisting: this.boundaryReplaceExisting,
+            });
+            await this.pollBoundaryImport();
+        } catch (err: any) {
+            this.boundaryImportError =
+                err?.error?.error || err?.message || 'Boundary import failed to start.';
+        } finally {
+            this.boundaryImporting = false;
+            this.cdr.markForCheck();
+        }
+    }
+
+    private async pollBoundaryImport(): Promise<void> {
+        for (;;) {
+            const status = await this.adminService.getBoundaryImportStatus();
+            this.boundaryImportPercent = status.percent || 0;
+            this.boundaryImportProgress = status.message || status.phase || '';
+            if (status.error) {
+                this.boundaryImportError = status.error;
+                break;
+            }
+            if (status.done) {
+                const n = status.counts?.['features'] ?? 0;
+                this.boundaryImportResult = status.message || `Imported ${n} boundaries.`;
+                await this.refreshBoundaryStats();
+                break;
+            }
+            this.cdr.markForCheck();
+            await new Promise((r) => setTimeout(r, 800));
+        }
+    }
+
+    async clearBoundaries(): Promise<void> {
+        if (!confirm('Remove all downloaded map boundaries from this server?')) {
+            return;
+        }
+        try {
+            await this.adminService.deleteAllBoundaries();
+            this.boundaryImportResult = 'All boundaries removed.';
+            this.boundaryImportError = '';
+            await this.refreshBoundaryStats();
+        } catch (err: any) {
+            this.boundaryImportError = err?.error?.error || err?.message || 'Failed to clear boundaries.';
+        }
+        this.cdr.markForCheck();
+    }
+
     isPanelDirty(panelId: OptionsPanelId): boolean {
+        if (panelId === 'mapping') {
+            return this.isMappingDirty;
+        }
         const baseline = this.panelBaselines[panelId];
         if (!baseline || !this.form) {
             return false;
@@ -312,7 +516,14 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     }
 
     get hasUnsavedChanges(): boolean {
-        return this.unsavedChanges.length > 0;
+        return this.unsavedChanges.length > 0 || this.isMappingDirty;
+    }
+
+    get isMappingDirty(): boolean {
+        if (!this.mappingForm) {
+            return false;
+        }
+        return JSON.stringify(this.mappingForm.getRawValue()) !== this.mappingBaseline;
     }
 
     get unsavedChanges(): UnsavedPanelChanges[] {
@@ -332,7 +543,59 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             }
         });
 
+        if (this.isMappingDirty) {
+            groups.push({
+                panelId: 'mapping',
+                panelLabel: OPTIONS_PANEL_LABELS.mapping,
+                fields: ['Incident mapping settings'],
+            });
+        }
+
         return groups;
+    }
+
+    async loadMappingConfig(): Promise<void> {
+        if (!this.mappingForm) {
+            return;
+        }
+        try {
+            const cfg = await this.adminService.getMappingConfig();
+            this.mappingForm.patchValue({
+                geocodeCacheMaxAgeDays: cfg.geocodeCacheMaxAgeDays ?? 30,
+                autoLearnKnownPlaces: cfg.autoLearnKnownPlaces ?? false,
+                openAIModel: cfg.openAIModel || '',
+                mapBoundariesEnabled: cfg.mapBoundariesEnabled ?? false,
+                mapBoundaryLayers: cfg.mapBoundaryLayers?.length ? cfg.mapBoundaryLayers : ['county'],
+                callNatureOpenAIClassify: cfg.callNatureOpenAIClassify ?? true,
+                suppressUnknownNaturePins: cfg.suppressUnknownNaturePins ?? false,
+                sendLocationContext: cfg.sendLocationContext ?? false,
+            }, { emitEvent: false });
+            this.mappingBaseline = JSON.stringify(this.mappingForm.getRawValue());
+            this.refreshPanelBaseline('mapping');
+            this.setupMappingToggleAutoSave();
+            this.cdr.markForCheck();
+        } catch {
+            // mapping config may be unavailable before first save
+        }
+    }
+
+    async saveMappingPanel(): Promise<void> {
+        if (!this.mappingForm || !this.isMappingDirty) {
+            return;
+        }
+        this.savingMapping = true;
+        this.cdr.markForCheck();
+        try {
+            await this.adminService.saveMappingConfig(this.mappingConfigPayload() as any);
+            this.mappingBaseline = JSON.stringify(this.mappingForm.getRawValue());
+            this.refreshPanelBaseline('mapping');
+            this.snackBar.open('Incident Mapping saved', 'Close', { duration: 1500 });
+        } catch {
+            this.snackBar.open('Failed to save incident mapping', 'Close', { duration: 4000 });
+        } finally {
+            this.savingMapping = false;
+            this.cdr.markForCheck();
+        }
     }
 
     goToUnsavedPanel(panelId: OptionsPanelId): void {
@@ -344,12 +607,17 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
      * other sections are unaffected. Per-system no-audio overrides save separately.
      */
     async savePanel(panelId: OptionsPanelId): Promise<void> {
+        if (panelId === 'mapping') {
+            await this.saveMappingPanel();
+            return;
+        }
         if (!this.form || !this.isPanelDirty(panelId)) {
             return;
         }
 
         const def = OPTIONS_PANEL_DEFS[panelId];
         const payload = this.buildPayloadForKeys(def.keys);
+        this.appendSharedGeminiApiKeyPayload(panelId, payload);
 
         this.savingPanel = panelId;
         this.cdr.markForCheck();
@@ -372,11 +640,42 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         this.savingPanel = null;
         if (ok) {
             this.refreshPanelBaseline(panelId);
+            // Gemini key is shared across Integrations + Transcription dirty tracking.
+            if (panelId === 'integrations' || panelId === 'transcription') {
+                this.refreshPanelBaseline(panelId === 'integrations' ? 'transcription' : 'integrations');
+            }
             this.snackBar.open(`${OPTIONS_PANEL_LABELS[panelId]} saved`, 'Close', { duration: 1500 });
         } else {
             this.snackBar.open('Failed to save. Please try again.', 'Close', { duration: 4000 });
         }
         this.cdr.markForCheck();
+    }
+
+    private appendSharedGeminiApiKeyPayload(panelId: OptionsPanelId, payload: Record<string, any>): void {
+        const def = OPTIONS_PANEL_DEFS[panelId];
+        if (!def.sharedGeminiApiKey || !this.form) {
+            return;
+        }
+        const baselineJson = this.panelBaselines[panelId];
+        const currentKey = this.form.get('transcriptionConfig')?.get('geminiAPIKey')?.value ?? '';
+        let baselineKey = '';
+        if (baselineJson) {
+            try {
+                baselineKey = (JSON.parse(baselineJson) as Record<string, unknown>)['__geminiAPIKey'] as string ?? '';
+            } catch {
+                baselineKey = '';
+            }
+        }
+        if (baselineKey === currentKey) {
+            return;
+        }
+        const existing = (payload['transcriptionConfig'] && typeof payload['transcriptionConfig'] === 'object')
+            ? payload['transcriptionConfig'] as Record<string, unknown>
+            : {};
+        payload['transcriptionConfig'] = {
+            ...existing,
+            geminiAPIKey: currentKey,
+        };
     }
 
     private buildPayloadForKeys(keys: string[]): Record<string, any> {
@@ -421,19 +720,26 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         }
 
         if ('relayServerAPIKey' in result) {
-            result['relayServerURL'] = 'https://tlradioserver.thinlineds.com';
+            result['relayServerURL'] = RELAY_SERVER_URL;
         }
 
         return result;
     }
 
     private snapshotPanel(panelId: OptionsPanelId): unknown {
+        if (panelId === 'mapping') {
+            return this.mappingForm?.getRawValue();
+        }
         const raw = this.form?.getRawValue();
         const def = OPTIONS_PANEL_DEFS[panelId];
         const snapshot: Record<string, unknown> = {};
 
         for (const key of def.keys) {
             snapshot[key] = raw?.[key];
+        }
+
+        if (def.sharedGeminiApiKey) {
+            snapshot['__geminiAPIKey'] = raw?.transcriptionConfig?.geminiAPIKey ?? '';
         }
 
         if (def.systemsNoAudio && this.systemsForm) {
@@ -472,6 +778,9 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     }
 
     private getPanelFieldChanges(panelId: OptionsPanelId): string[] {
+        if (panelId === 'mapping') {
+            return this.isMappingDirty ? ['Incident mapping settings'] : [];
+        }
         const baselineJson = this.panelBaselines[panelId];
         if (!baselineJson || !this.form) {
             return [];
@@ -483,6 +792,12 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
 
         for (const key of OPTIONS_PANEL_DEFS[panelId].keys) {
             this.collectFieldChanges(key, baseline[key], current[key], labels);
+        }
+
+        if (OPTIONS_PANEL_DEFS[panelId].sharedGeminiApiKey) {
+            if ((baseline['__geminiAPIKey'] ?? '') !== (current['__geminiAPIKey'] ?? '')) {
+                labels.push(OPTIONS_FIELD_LABELS['transcriptionConfig.geminiAPIKey'] || 'Gemini API key');
+            }
         }
 
         if (OPTIONS_PANEL_DEFS[panelId].systemsNoAudio) {
@@ -810,6 +1125,16 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     ];
 
     private toggleSubscriptions: Subscription[] = [];
+    private mappingToggleSubscriptions: Subscription[] = [];
+
+    /** mappingForm booleans/selects that must persist via PUT /api/admin/mapping/config. */
+    private static readonly MAPPING_AUTO_SAVE_KEYS = [
+        'autoLearnKnownPlaces',
+        'mapBoundariesEnabled',
+        'callNatureOpenAIClassify',
+        'suppressUnknownNaturePins',
+        'sendLocationContext',
+    ] as const;
 
     /** Subscribe each toggle so flipping it immediately persists just that key. */
     private setupToggleAutoSave(): void {
@@ -823,6 +1148,27 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             this.toggleSubscriptions.push(ctrl.valueChanges.subscribe((value) => {
                 if (!this.initialLoadComplete) return;
                 this.saveOptionKey(key, value);
+            }));
+        }
+    }
+
+    /** Incident Mapping panel uses a separate API; auto-save its toggles on change. */
+    private setupMappingToggleAutoSave(): void {
+        this.mappingToggleSubscriptions.forEach(s => s.unsubscribe());
+        this.mappingToggleSubscriptions = [];
+        if (!this.mappingForm) {
+            return;
+        }
+        for (const key of RdioScannerAdminOptionsComponent.MAPPING_AUTO_SAVE_KEYS) {
+            const ctrl = this.mappingForm.get(key);
+            if (!ctrl) {
+                continue;
+            }
+            this.mappingToggleSubscriptions.push(ctrl.valueChanges.subscribe(() => {
+                if (!this.initialLoadComplete) {
+                    return;
+                }
+                void this.saveMappingPanel();
             }));
         }
     }
@@ -881,6 +1227,19 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     }
 
     ngOnInit(): void {
+        this.mappingForm = this.formBuilder.group({
+            geocodeCacheMaxAgeDays: [30],
+            autoLearnKnownPlaces: [false],
+            openAIModel: [''],
+            mapBoundariesEnabled: [false],
+            mapBoundaryLayers: [['county'] as string[]],
+            callNatureOpenAIClassify: [false],
+            suppressUnknownNaturePins: [false],
+            sendLocationContext: [false],
+        });
+        this.loadMappingConfig();
+        this.setupMappingToggleAutoSave();
+        this.refreshBoundaryStats();
         this.setupRadioReferenceValidation();
         this.setInitialRadioReferenceValidation();
         this.storeOriginalCredentials();
@@ -903,6 +1262,9 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         setTimeout(() => {
             this.panelsReady = true;
             this.refreshRelaySuspensionStatus();
+            this.refreshRelayAccountStatus();
+            this.refreshRelayBillingCatalog();
+            this.startRelayBillingPoll();
             this.cdr.detectChanges();
         }, 80);
     }
@@ -912,6 +1274,17 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         this.formChangeSubscription?.unsubscribe();
         this.systemsChangeSubscription?.unsubscribe();
         this.toggleSubscriptions.forEach(s => s.unsubscribe());
+        this.mappingToggleSubscriptions.forEach(s => s.unsubscribe());
+        this.stopRelayBillingPoll();
+        this.stopRelayBillingWatch();
+    }
+
+    @HostListener('document:visibilitychange')
+    onDocumentVisibilityChange(): void {
+        if (document.visibilityState === 'visible' && this.hasRelayAPIKey()) {
+            this.refreshRelayBillingCatalog({ quiet: true });
+            this.refreshRelayAccountStatus();
+        }
     }
 
     ngOnChanges(changes: SimpleChanges): void {
@@ -924,10 +1297,11 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             this.notificationsExpanded = false;
             this.userRegistrationExpanded = false;
             this.stripeExpanded = false;
+            this.thinlineServicesExpanded = false;
             this.integrationsExpanded = false;
             this.securityExpanded = false;
-
-            this.panelsReady = false;
+            this.mappingExpanded = false;
+            this.callNaturesExpanded = false;
             this.cdr.detectChanges(); // Force the hide to apply immediately
 
             this.setupRadioReferenceValidation();
@@ -1087,7 +1461,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         
         const relayServerURLControl = this.form.get('relayServerURL');
         if (relayServerURLControl) {
-            relayServerURLControl.setValue('https://tlradioserver.thinlineds.com', { emitEvent: false });
+            relayServerURLControl.setValue(RELAY_SERVER_URL, { emitEvent: false });
         }
     }
 
@@ -1179,7 +1553,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         if (!this.form) return;
 
         // Use hardcoded relay server URL
-        const relayServerURL = 'https://tlradioserver.thinlineds.com';
+        const relayServerURL = RELAY_SERVER_URL;
         const existingAPIKey = this.form.get('relayServerAPIKey')?.value;
         
         // Ensure the form control has the hardcoded value
@@ -1197,11 +1571,13 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             }
         });
 
-        dialogRef.afterClosed().subscribe((apiKey: string | null) => {
+        dialogRef.afterClosed().subscribe(async (apiKey: string | null) => {
             if (apiKey && this.form) {
                 this.form.get('relayServerAPIKey')?.setValue(apiKey);
-                // Persist immediately via the dedicated options endpoint (no global save / reload).
-                this.saveOptionKey('relayServerAPIKey', apiKey);
+                // Persist first so the server has the key in memory before catalog load.
+                await this.saveOptionKey('relayServerAPIKey', apiKey);
+                this.refreshRelayAccountStatus();
+                this.refreshRelayBillingCatalog();
             }
         });
     }
@@ -1209,18 +1585,19 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     recoverRelayAPIKey() {
         if (!this.form) return;
 
-        const relayServerURL = 'https://tlradioserver.thinlineds.com';
+        const relayServerURL = RELAY_SERVER_URL;
 
         const dialogRef = this.dialog.open(RecoverAPIKeyDialogComponent, {
             width: '600px',
             data: { relayServerURL: relayServerURL }
         });
 
-        dialogRef.afterClosed().subscribe((apiKey: string | null) => {
+        dialogRef.afterClosed().subscribe(async (apiKey: string | null) => {
             if (apiKey && this.form) {
                 this.form.get('relayServerAPIKey')?.setValue(apiKey);
-                // Persist immediately via the dedicated options endpoint (no global save / reload).
-                this.saveOptionKey('relayServerAPIKey', apiKey);
+                await this.saveOptionKey('relayServerAPIKey', apiKey);
+                this.refreshRelayAccountStatus();
+                this.refreshRelayBillingCatalog();
             }
         });
     }
@@ -1781,6 +2158,303 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                     this.snackBar.open(msg, 'Close', { duration: 6000 });
                 },
             });
+    }
+
+    refreshRelayAccountStatus(): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            return;
+        }
+        const headers = new HttpHeaders({ Authorization: token });
+        this.http
+            .get<{
+                username: string;
+                signedIn: boolean;
+                lastError: string;
+                nominatimSubscriptionStatus: string;
+            }>(`${window.location.origin}/api/admin/relay-account/status`, { headers })
+            .subscribe({
+                next: (s) => {
+                    this.relayAccountStatus = s;
+                    this.cdr.markForCheck();
+                },
+                error: () => {
+                    this.relayAccountStatus = null;
+                    this.cdr.markForCheck();
+                },
+            });
+    }
+
+    openRelayAccountDialog(initialMode: 'login' | 'create' = 'create'): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            this.snackBar.open('Not authenticated.', 'Close', { duration: 4000 });
+            return;
+        }
+        const dialogRef = this.dialog.open(RelayAccountDialogComponent, {
+            width: '480px',
+            data: { adminToken: token, initialMode },
+        });
+        dialogRef.afterClosed().subscribe((signedIn: boolean | null) => {
+            if (signedIn) {
+                this.snackBar.open(
+                    initialMode === 'create'
+                        ? 'Relay account created. Open the portal to subscribe if needed.'
+                        : 'Signed in. Open the portal to subscribe or manage billing.',
+                    'Open portal',
+                    { duration: 8000 },
+                ).onAction().subscribe(() => {
+                    window.open(this.relayPortalURL, '_blank', 'noopener,noreferrer');
+                    this.startRelayBillingWatch();
+                });
+                this.refreshRelayAccountStatus();
+                this.refreshRelayBillingCatalog();
+                this.startRelayBillingWatch();
+            }
+        });
+    }
+
+    onOpenRelayPortal(): void {
+        this.startRelayBillingWatch();
+    }
+
+    signOutRelayAccount(): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            return;
+        }
+        const headers = new HttpHeaders({ Authorization: token });
+        this.relayAccountBusy = true;
+        this.http
+            .post<{ success: boolean; error?: string }>(
+                `${window.location.origin}/api/admin/relay-account/logout`,
+                {},
+                { headers },
+            )
+            .subscribe({
+                next: () => {
+                    this.relayAccountBusy = false;
+                    this.snackBar.open('Signed out of relay account.', 'Close', { duration: 4000 });
+                    this.refreshRelayAccountStatus();
+                    this.refreshRelayBillingCatalog();
+                },
+                error: (err) => {
+                    this.relayAccountBusy = false;
+                    const msg = err?.error?.error || err?.message || 'Sign-out failed';
+                    this.snackBar.open(msg, 'Close', { duration: 6000 });
+                },
+            });
+    }
+
+    refreshRelayBillingCatalog(opts?: { quiet?: boolean }): void {
+        if (!this.hasRelayAPIKey()) {
+            this.relayBillingPlanRows = [];
+            this.relayBillingError = '';
+            this.previousSubscribedSlugs.clear();
+            this.relayBillingBaselineReady = false;
+            return;
+        }
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            return;
+        }
+        const quiet = !!opts?.quiet && this.relayBillingPlanRows.length > 0;
+        const headers = new HttpHeaders({ Authorization: token });
+        if (!quiet) {
+            this.relayBillingLoading = true;
+        }
+        this.relayBillingError = '';
+        this.http
+            .get<RelayBillingCatalogResponse>(`${window.location.origin}/api/admin/relay-billing/catalog`, { headers })
+            .subscribe({
+                next: (res) => {
+                    this.relayBillingLoading = false;
+                    this.relayBillingPlanRows = this.buildRelayBillingPlanRows(res);
+                    this.applyRelayPushEnforcementNotice(res);
+                    this.noteRelaySubscriptionChanges(this.relayBillingPlanRows);
+                    this.cdr.markForCheck();
+                },
+                error: (err) => {
+                    this.relayBillingLoading = false;
+                    if (!quiet) {
+                        this.relayBillingPlanRows = [];
+                        this.relayBillingError = err?.error?.error || err?.message || 'Failed to load billing plans';
+                    }
+                    this.cdr.markForCheck();
+                },
+            });
+    }
+
+    private applyRelayPushEnforcementNotice(catalog: RelayBillingCatalogResponse): void {
+        const notice = (catalog?.push_plan_enforcement?.notice || '').trim();
+        this.relayPushEnforcementNotice = notice || DEFAULT_RELAY_PUSH_ENFORCEMENT_NOTICE;
+    }
+
+    private startRelayBillingPoll(): void {
+        this.stopRelayBillingPoll();
+        this.relayBillingPollTimer = setInterval(() => {
+            if (this.hasRelayAPIKey()) {
+                this.refreshRelayBillingCatalog({ quiet: true });
+            }
+        }, 30_000);
+    }
+
+    private stopRelayBillingPoll(): void {
+        if (this.relayBillingPollTimer) {
+            clearInterval(this.relayBillingPollTimer);
+            this.relayBillingPollTimer = null;
+        }
+    }
+
+    /** Faster refresh after checkout / portal visit until Stripe webhook lands. */
+    private startRelayBillingWatch(): void {
+        this.stopRelayBillingWatch();
+        const until = Date.now() + 3 * 60_000;
+        this.relayBillingWatchTimer = setInterval(() => {
+            if (Date.now() > until) {
+                this.stopRelayBillingWatch();
+                return;
+            }
+            if (this.hasRelayAPIKey()) {
+                this.refreshRelayBillingCatalog({ quiet: true });
+            }
+        }, 5_000);
+    }
+
+    private stopRelayBillingWatch(): void {
+        if (this.relayBillingWatchTimer) {
+            clearInterval(this.relayBillingWatchTimer);
+            this.relayBillingWatchTimer = null;
+        }
+    }
+
+    private noteRelaySubscriptionChanges(rows: RelayBillingPlanRow[]): void {
+        const next = new Set(rows.filter((r) => r.subscribed && !r.includedWithGeocoding).map((r) => r.slug));
+        if (!this.relayBillingBaselineReady) {
+            this.previousSubscribedSlugs = next;
+            this.relayBillingBaselineReady = true;
+            return;
+        }
+        const newly: string[] = [];
+        for (const slug of next) {
+            if (!this.previousSubscribedSlugs.has(slug)) {
+                newly.push(slug);
+            }
+        }
+        this.previousSubscribedSlugs = next;
+        if (newly.length === 0) {
+            return;
+        }
+        this.stopRelayBillingWatch();
+        const names = rows.filter((r) => newly.includes(r.slug)).map((r) => r.name).join(', ');
+        this.snackBar.open(`Subscribed: ${names}`, 'Close', { duration: 6000 });
+    }
+
+    private buildRelayBillingPlanRows(catalog: RelayBillingCatalogResponse): RelayBillingPlanRow[] {
+        const entBySlug = new Map<string, string>();
+        for (const ent of catalog?.entitlements || []) {
+            const slug = (ent.plan_slug || '').trim().toLowerCase();
+            if (slug) {
+                entBySlug.set(slug, (ent.status || 'none').trim().toLowerCase());
+            }
+        }
+        const nominatimStatus = entBySlug.get('nominatim') || 'none';
+        const geocodingActive = nominatimStatus === 'active' || nominatimStatus === 'trialing';
+        const rows: RelayBillingPlanRow[] = [];
+        for (const plan of catalog?.plans || []) {
+            const slug = (plan.slug || '').trim().toLowerCase();
+            if (!slug || plan.active === false) {
+                continue;
+            }
+            let status = entBySlug.get(slug) || 'none';
+            let subscribed = status === 'active' || status === 'trialing';
+            let billable = !!(plan.stripe_price_id || '').trim();
+            let includedWithGeocoding = false;
+            // Geocoding and Push already covers push — don't offer a second checkout.
+            if (slug === 'push_relay' && geocodingActive) {
+                includedWithGeocoding = true;
+                subscribed = true;
+                status = nominatimStatus;
+                billable = false;
+            }
+            rows.push({
+                slug,
+                name: plan.name || slug,
+                description: (plan.description || '').trim(),
+                price_label: (plan.price_label || '').trim(),
+                status,
+                subscribed,
+                billable,
+                includedWithGeocoding,
+            });
+        }
+        return rows;
+    }
+
+    planStatusLabel(status: string, includedWithGeocoding = false): string {
+        if (includedWithGeocoding) {
+            return 'Included with Geocoding and Push';
+        }
+        switch ((status || '').toLowerCase()) {
+            case 'active': return 'Active';
+            case 'trialing': return 'Trial';
+            case 'past_due': return 'Past Due';
+            case 'canceled': return 'Canceled';
+            default: return 'Not Subscribed';
+        }
+    }
+
+    planStatusColor(status: string): 'primary' | 'accent' | 'warn' {
+        switch ((status || '').toLowerCase()) {
+            case 'active':
+            case 'trialing':
+                return 'accent';
+            case 'past_due':
+                return 'warn';
+            default:
+                return 'primary';
+        }
+    }
+
+    subscribeRelayPlan(planSlug: string): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            this.snackBar.open('Not authenticated.', 'Close', { duration: 4000 });
+            return;
+        }
+        const headers = new HttpHeaders({ Authorization: token });
+        this.relayPlanSubscribingSlug = planSlug;
+        this.http
+            .post<{ checkout_url?: string; error?: string }>(
+                `${window.location.origin}/api/admin/relay-billing/subscribe`,
+                { plan_slug: planSlug },
+                { headers },
+            )
+            .subscribe({
+                next: (res) => {
+                    this.relayPlanSubscribingSlug = '';
+                    if (res?.checkout_url) {
+                        window.open(res.checkout_url, '_blank');
+                        this.startRelayBillingWatch();
+                        this.snackBar.open('Complete checkout in the new tab — status will update here when done.', 'Close', {
+                            duration: 6000,
+                        });
+                    } else {
+                        this.snackBar.open(res?.error || 'Failed to start checkout', 'Close', { duration: 6000 });
+                    }
+                    this.cdr.markForCheck();
+                },
+                error: (err) => {
+                    this.relayPlanSubscribingSlug = '';
+                    const msg = err?.error?.error || err?.message || 'Failed to start checkout';
+                    this.snackBar.open(msg, 'Close', { duration: 6000 });
+                    this.cdr.markForCheck();
+                },
+            });
+    }
+
+    subscribeNominatim(): void {
+        this.subscribeRelayPlan('nominatim');
     }
 
     testCentralConnection(): void {

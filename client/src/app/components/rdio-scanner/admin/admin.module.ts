@@ -49,8 +49,10 @@ import { InviteUserDialogComponent, InvitationResultsDialogComponent, CreateUser
 import { TransferUserDialogComponent } from './config/users/transfer-user-dialog.component';
 import { RequestAPIKeyDialogComponent } from './config/options/request-api-key-dialog.component';
 import { RecoverAPIKeyDialogComponent } from './config/options/recover-api-key-dialog.component';
+import { RelayAccountDialogComponent } from './config/options/relay-account-dialog.component';
 import { RdioScannerAdminUserGroupsComponent } from './config/user-groups/user-groups.component';
 import { RdioScannerAdminKeywordListsComponent } from './config/keyword-lists/keyword-lists.component';
+import { RdioScannerAdminCallNaturesComponent } from './config/call-natures/call-natures.component';
 import { RdioScannerAdminTranscriptParserComponent } from './config/transcript-parser/transcript-parser.component';
 import { RdioScannerAdminLoginComponent } from './login/login.component';
 import { AlertsService } from '../alerts/alerts.service';
@@ -58,6 +60,8 @@ import { RdioScannerAdminLogsComponent } from './logs/logs.component';
 import { RdioScannerAdminTodosComponent } from './todos/todos.component';
 import { RdioScannerAdminToolsComponent } from './tools/tools.component';
 import { RdioScannerAdminImportExportConfigComponent } from './tools/import-export-config/import-export-config.component';
+import { ImportConfigResultDialogComponent } from './tools/import-export-config/import-config-result-dialog.component';
+import { ImportConfigReviewDialogComponent } from './tools/import-export-config/import-config-review-dialog.component';
 import { RdioScannerAdminImportTalkgroupsComponent } from './tools/import-talkgroups/import-talkgroups.component';
 import { RdioScannerAdminImportUnitsComponent } from './tools/import-units/import-units.component';
 import { RdioScannerAdminPasswordComponent } from './tools/password/password.component';
@@ -67,6 +71,9 @@ import { RdioScannerAdminStripeSyncComponent } from './tools/stripe-sync/stripe-
 import { RdioScannerAdminPurgeDataComponent } from './tools/purge-data/purge-data.component';
 import { RdioScannerAdminSystemHealthComponent } from './system-health/system-health.component';
 import { RdioScannerAdminAssistantComponent } from './assistant/assistant.component';
+import { RdioScannerAdminMappingDataComponent } from './config/mapping-data/mapping-data.component';
+import { ToneSetLocationDialogComponent } from './config/systems/system/tone-set-location-dialog.component';
+import { TalkgroupLocationDialogComponent } from './config/systems/system/talkgroup-location-dialog.component';
 
 @NgModule({
     declarations: [
@@ -77,6 +84,8 @@ import { RdioScannerAdminAssistantComponent } from './assistant/assistant.compon
         RdioScannerAdminDownstreamsComponent,
         RdioScannerAdminGroupsComponent,
         RdioScannerAdminImportExportConfigComponent,
+        ImportConfigResultDialogComponent,
+        ImportConfigReviewDialogComponent,
         RdioScannerAdminImportTalkgroupsComponent,
         RdioScannerAdminImportUnitsComponent,
         RdioScannerAdminLoginComponent,
@@ -98,18 +107,23 @@ import { RdioScannerAdminAssistantComponent } from './assistant/assistant.compon
         TransferUserDialogComponent,
         RequestAPIKeyDialogComponent,
         RecoverAPIKeyDialogComponent,
+        RelayAccountDialogComponent,
         RdioScannerAdminUserGroupsComponent,
         RdioScannerAdminTodosComponent,
         RdioScannerAdminToolsComponent,
         RdioScannerAdminUnitComponent,
         RdioScannerAdminRadioReferenceImportComponent,
         RdioScannerAdminKeywordListsComponent,
+        RdioScannerAdminCallNaturesComponent,
         RdioScannerAdminTranscriptParserComponent,
         RdioScannerAdminConfigSyncComponent,
         RdioScannerAdminStripeSyncComponent,
         RdioScannerAdminPurgeDataComponent,
         RdioScannerAdminSystemHealthComponent,
         RdioScannerAdminAssistantComponent,
+        RdioScannerAdminMappingDataComponent,
+        ToneSetLocationDialogComponent,
+        TalkgroupLocationDialogComponent,
     ],
     entryComponents: [RdioScannerAdminSystemsSelectComponent],
     exports: [RdioScannerAdminComponent],

@@ -22,7 +22,7 @@
           <span class="mat-body"><strong>Unsaved changes</strong> — save each section below or review what changed:</span>
         </ng-container>
         <ng-template #optionsHint>
-          <span class="mat-caption options-hint">Toggles save automatically. Use each section's Save button for text fields and other entries.</span>
+          <span class="mat-caption options-hint">Most toggles in Alerts, Security, and other sections save automatically. <strong>Incident Mapping</strong> API keys and geocoding toggles require that panel's <strong>Save</strong> button (or flip a toggle there to auto-save).</span>
         </ng-template>
       </div>
     </div>
@@ -402,7 +402,7 @@
         <p></p>
         <mat-card style="background-color: #fff3cd; color: #856404; padding: 16px;">
           <mat-icon style="vertical-align: middle; margin-right: 8px;">warning</mat-icon>
-          <span>Audio encryption requires a relay server API key. Please configure one in the External Integrations section.</span>
+          <span>Audio encryption requires a relay server API key. Please configure one in the Thinline Radio Services section.</span>
         </mat-card>
       </div>
 
@@ -758,6 +758,167 @@
   <!-- ═══════════════════════════════════════════════════════════════════════════ -->
   <!-- INTEGRATIONS -->
   <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <!-- THINLINE RADIO SERVICES -->
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <div id="opt-panel-thinlineServicesExpanded" style="height:0;overflow:hidden"></div>
+  <mat-expansion-panel [(expanded)]="thinlineServicesExpanded" class="section-panel">
+    <mat-expansion-panel-header>
+      <mat-panel-title>
+        <mat-icon>hub</mat-icon>
+        <span>Thinline Radio Services</span>
+      </mat-panel-title>
+      <mat-panel-description>
+        Relay server, push notifications, geocoding, and add-on plans
+      </mat-panel-description>
+    </mat-expansion-panel-header>
+
+    <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'thinlineServices' }"></ng-container>
+
+      <!-- Relay Server -->
+      <div class="row">
+        <p>
+          <span class="mat-body">Thinline Relay Server</span><br>
+          <span class="mat-caption">Connect for push notifications, audio encryption, and optional geocoding.</span>
+        </p>
+      </div>
+
+      <div class="relay-enforcement-notice" role="status">
+        <mat-icon class="relay-enforcement-notice-icon">schedule</mat-icon>
+        <div class="relay-enforcement-notice-body">
+          <p class="relay-enforcement-notice-title">Push subscription enforcement</p>
+          <p class="relay-enforcement-notice-text">{{ relayPushEnforcementNotice }}</p>
+        </div>
+      </div>
+
+      <div class="row">
+        <p>
+          <span class="mat-body">Relay Server API Key</span><br>
+          <span class="mat-caption">Required for push notifications and audio encryption. Request an API key to get started.</span>
+        </p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button mat-raised-button type="button" color="primary" *ngIf="!hasRelayAPIKey()" (click)="requestRelayAPIKey()">
+            <mat-icon>vpn_key</mat-icon>
+            Request API Key
+          </button>
+          <button mat-raised-button type="button" *ngIf="hasRelayAPIKey()" (click)="editRelayAPIKey()">
+            <mat-icon>edit</mat-icon>
+            Change API Key
+          </button>
+          <button mat-stroked-button type="button" *ngIf="hasRelayAPIKey()" (click)="recoverRelayAPIKey()">
+            <mat-icon>restore</mat-icon>
+            Recover Lost Key
+          </button>
+        </div>
+      </div>
+
+      <div class="row" *ngIf="hasRelayAPIKey()">
+        <p>
+          <span class="mat-body">API Key Status</span><br>
+          <span class="mat-caption">Relay server API key is configured.</span>
+        </p>
+        <mat-chip-set>
+          <mat-chip color="accent" selected>
+            <mat-icon>check_circle</mat-icon>
+            Connected
+          </mat-chip>
+        </mat-chip-set>
+      </div>
+
+      <!-- Relay Account -->
+      <div class="row" *ngIf="hasRelayAPIKey()" style="margin-top: 24px;">
+        <p>
+          <span class="mat-body">Relay Account</span><br>
+          <span class="mat-caption" *ngIf="!relayAccountStatus?.signedIn">
+            Create an account here (or sign in if you already have one).
+          </span>
+          <span class="mat-caption" *ngIf="relayAccountStatus?.signedIn">
+            Signed in as <strong>{{ relayAccountStatus?.username }}</strong>.
+            Manage billing and subscribe on the relay portal:
+            <a [href]="relayPortalURL" target="_blank" rel="noopener noreferrer" class="options-inline-link">{{ relayPortalURL }}</a>
+          </span>
+        </p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button mat-raised-button type="button" color="primary" *ngIf="!relayAccountStatus?.signedIn" (click)="openRelayAccountDialog('create')">
+            <mat-icon>person_add</mat-icon>
+            Create Account
+          </button>
+          <button mat-stroked-button type="button" *ngIf="!relayAccountStatus?.signedIn" (click)="openRelayAccountDialog('login')">
+            <mat-icon>login</mat-icon>
+            Sign In
+          </button>
+          <a mat-stroked-button color="primary" *ngIf="relayAccountStatus?.signedIn"
+             [href]="relayPortalURL" target="_blank" rel="noopener noreferrer"
+             (click)="onOpenRelayPortal()">
+            <mat-icon>open_in_new</mat-icon>
+            Open Relay Portal
+          </a>
+          <button mat-stroked-button type="button" color="warn" *ngIf="relayAccountStatus?.signedIn" [disabled]="relayAccountBusy" (click)="signOutRelayAccount()">
+            <mat-icon>logout</mat-icon>
+            Sign Out
+          </button>
+        </div>
+      </div>
+
+      <!-- Relay Billing Plans -->
+      <div class="row" *ngIf="hasRelayAPIKey()" style="margin-top: 24px;">
+        <p>
+          <span class="mat-body">Relay Add-On Plans</span><br>
+          <span class="mat-caption">
+            <strong>Geocoding and Push</strong> includes geocoding plus push notifications.
+            <strong>Push Notifications</strong> is push only.
+            Subscribe here or on
+            <a [href]="relayPortalURL" target="_blank" rel="noopener noreferrer" class="options-inline-link">app.thinlineradio.com</a>
+            after signing in — status refreshes automatically.
+          </span>
+        </p>
+        <div>
+          <button mat-stroked-button type="button" (click)="refreshRelayBillingCatalog()" [disabled]="relayBillingLoading">
+            <mat-icon>refresh</mat-icon>
+            Refresh status
+          </button>
+        </div>
+      </div>
+
+      <div class="relay-billing-plans" *ngIf="hasRelayAPIKey()">
+        <div class="relay-billing-plan" *ngFor="let plan of relayBillingPlanRows">
+          <div class="relay-billing-plan-main">
+            <div class="relay-billing-plan-title">
+              <span class="mat-body">{{ plan.name }}</span>
+              <span class="relay-billing-plan-price" *ngIf="plan.price_label">{{ plan.price_label }}</span>
+            </div>
+            <p class="mat-caption relay-billing-plan-desc" *ngIf="plan.description">{{ plan.description }}</p>
+          </div>
+          <div class="relay-billing-plan-actions">
+            <mat-chip-set>
+              <mat-chip [color]="planStatusColor(plan.status)" selected>
+                <mat-icon>{{ plan.subscribed ? 'check_circle' : (plan.status === 'past_due' ? 'error' : 'radio_button_unchecked') }}</mat-icon>
+                {{ planStatusLabel(plan.status, plan.includedWithGeocoding) }}
+              </mat-chip>
+            </mat-chip-set>
+            <button mat-raised-button type="button" color="primary"
+                    *ngIf="plan.billable && !plan.subscribed"
+                    [disabled]="relayPlanSubscribingSlug === plan.slug"
+                    (click)="subscribeRelayPlan(plan.slug)">
+              <mat-icon>credit_card</mat-icon>
+              {{ relayPlanSubscribingSlug === plan.slug ? 'Starting Checkout…' : 'Subscribe' }}
+            </button>
+          </div>
+        </div>
+
+        <p class="mat-caption relay-billing-empty" *ngIf="relayBillingLoading">Loading plans from relay…</p>
+        <p class="mat-caption relay-billing-empty" *ngIf="!relayBillingLoading && relayBillingPlanRows.length === 0 && !relayBillingError">
+          No billing plans are available on the relay yet.
+        </p>
+        <p class="mat-caption relay-billing-error" *ngIf="relayBillingError">{{ relayBillingError }}</p>
+      </div>
+
+    </div>
+  </mat-expansion-panel>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <!-- EXTERNAL INTEGRATIONS -->
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
   <div id="opt-panel-integrationsExpanded" style="height:0;overflow:hidden"></div>
   <mat-expansion-panel [(expanded)]="integrationsExpanded" class="section-panel">
     <mat-expansion-panel-header>
@@ -766,7 +927,7 @@
         <span>External Integrations</span>
       </mat-panel-title>
       <mat-panel-description>
-        OpenAI, Radio Reference, relay server, config sync
+        OpenAI, Gemini, and Radio Reference
       </mat-panel-description>
     </mat-expansion-panel-header>
 
@@ -777,7 +938,7 @@
       <div id="opt-openai-integration" class="row">
         <p>
           <span class="mat-body">OpenAI</span><br>
-          <span class="mat-caption">Server-wide OpenAI API credentials for TLR-powered features (tone auto-learn naming, unit alias auto-learn). Not used for speech-to-text transcription.</span>
+          <span class="mat-caption">Server-wide OpenAI API credentials for TLR-powered features (incident mapping transcript extraction, tone auto-learn naming, unit alias auto-learn). Not used for speech-to-text transcription.</span>
         </p>
       </div>
 
@@ -805,7 +966,7 @@
         <div class="row">
           <p>
             <span class="mat-body">Chat model</span><br>
-            <span class="mat-caption">Model used for tone and unit alias naming. Estimates assume ~2.5k input + ~20 output tokens per naming request.</span>
+            <span class="mat-caption">Default chat model for tone and unit alias naming, and for incident mapping when no override is set under Incident Mapping. Estimates below assume ~2.5k input + ~20 output tokens per naming request.</span>
           </p>
           <mat-form-field floatLabel="auto">
             <mat-select formControlName="model">
@@ -816,6 +977,30 @@
             <mat-hint *ngIf="selectedOpenAIModel as sel">
               ~${{ sel.estPerNamingUSD | number:'1.4-4' }} per naming call · ${{ sel.inputPerM }}/M in · ${{ sel.outputPerM }}/M out
             </mat-hint>
+          </mat-form-field>
+        </div>
+      </ng-container>
+
+      <!-- Gemini Integration (same stored key as Transcription → Gemini) -->
+      <div id="opt-gemini-integration" class="row" style="margin-top: 16px;">
+        <p>
+          <span class="mat-body">Gemini</span><br>
+          <span class="mat-caption">
+            Google AI Studio / Gemini API key for non-transcription TLR features (for example talkgroup and tone-set location suggestions).
+            This is the same key shown under Transcription when Gemini is the STT provider — edit either place.
+            Saving a key here does <strong>not</strong> enable speech-to-text; turn on Transcription and select Gemini separately if you want STT.
+          </span>
+        </p>
+      </div>
+
+      <ng-container formGroupName="transcriptionConfig">
+        <div class="row">
+          <p>
+            <span class="mat-body">API Key</span><br>
+            <span class="mat-caption">Shared with Transcription Settings → Gemini. Leave blank if unused.</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <input type="password" class="masked-pw" matInput formControlName="geminiAPIKey" placeholder="Gemini API Key" autocomplete="new-password">
           </mat-form-field>
         </div>
       </ng-container>
@@ -891,53 +1076,6 @@
         </div>
 
       </ng-container>
-
-      <!-- Relay Server -->
-      <div class="row" style="margin-top: 24px;">
-        <p>
-          <span class="mat-body">Thinline Relay Server</span><br>
-          <span class="mat-caption">Connect to Thinline Relay Server for push notifications and audio encryption. Relay server URL is hardcoded to https://tlradioserver.thinlineds.com</span>
-        </p>
-      </div>
-
-      <div class="row">
-        <p>
-          <span class="mat-body">Relay Server API Key</span><br>
-          <span class="mat-caption">Required for push notifications and audio encryption. Request an API key to get started.</span><br>
-          <span class="mat-caption" style="display: inline-block; margin-top: 8px; max-width: 52rem; line-height: 1.45;">
-            Requesting or changing this key needs a supported browser context: open admin using HTTPS, or using http://localhost or http://127.0.0.1.
-            If you rely on localhost, set the server listen address to 0.0.0.0 in your configuration (not only the machine’s LAN IP) so the service is reachable on loopback.
-            Opening admin as plain http with only a LAN IP or hostname can fail with “Failed to initialize authorization” before you submit the form.
-          </span>
-        </p>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button mat-raised-button type="button" color="primary" *ngIf="!hasRelayAPIKey()" (click)="requestRelayAPIKey()">
-            <mat-icon>vpn_key</mat-icon>
-            Request API Key
-          </button>
-          <button mat-raised-button type="button" *ngIf="hasRelayAPIKey()" (click)="editRelayAPIKey()">
-            <mat-icon>edit</mat-icon>
-            Change API Key
-          </button>
-          <button mat-stroked-button type="button" *ngIf="hasRelayAPIKey()" (click)="recoverRelayAPIKey()">
-            <mat-icon>restore</mat-icon>
-            Recover Lost Key
-          </button>
-        </div>
-      </div>
-
-      <div class="row" *ngIf="hasRelayAPIKey()">
-        <p>
-          <span class="mat-body">API Key Status</span><br>
-          <span class="mat-caption">Relay server API key is configured.</span>
-        </p>
-        <mat-chip-set>
-          <mat-chip color="accent" selected>
-            <mat-icon>check_circle</mat-icon>
-            Connected
-          </mat-chip>
-        </mat-chip-set>
-      </div>
 
     </div>
   </mat-expansion-panel>
@@ -1208,6 +1346,16 @@
 
         <div class="row">
           <p>
+            <span class="mat-body">Billing Portal Configuration ID</span><br>
+            <span class="mat-caption">Optional. Stripe Customer portal config id (starts with bpc_). Use your scanner portal so Manage billing only shows scanner plans. Leave blank for Stripe&rsquo;s default portal.</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <input type="text" matInput formControlName="stripeBillingPortalConfigurationId" placeholder="bpc_xxxxx" autocomplete="off">
+          </mat-form-field>
+        </div>
+
+        <div class="row">
+          <p>
             <span class="mat-body">Grace Period (days)</span><br>
             <span class="mat-caption">Number of days users can continue accessing after subscription expires.</span>
           </p>
@@ -1269,12 +1417,38 @@
             <mat-select formControlName="provider" placeholder="Provider">
               <mat-option value="whisper-api">OpenAI-Compatible API (Whisper / OpenAI)</mat-option>
               <mat-option value="azure">Azure Speech Services</mat-option>
-              <mat-option value="google">Google Speech-to-Text</mat-option>
+              <mat-option value="gemini">Gemini 3.1 Flash-Lite</mat-option>
+              <mat-option value="google" *ngIf="form?.get('transcriptionConfig')?.get('provider')?.value === 'google'">Google Speech-to-Text (legacy)</mat-option>
               <mat-option value="assemblyai">AssemblyAI</mat-option>
               <mat-option value="cloudflare">Cloudflare Workers AI</mat-option>
             </mat-select>
           </mat-form-field>
         </div>
+
+        <!-- Gemini Configuration -->
+        <ng-container *ngIf="form?.get('transcriptionConfig')?.get('provider')?.value === 'gemini'">
+          <div class="row">
+            <p>
+              <span class="mat-body">Gemini API Key</span><br>
+              <span class="mat-caption">
+                Same key as <strong>External Integrations → Gemini</strong>.
+                If blank, the Google API key field is used when set.
+              </span>
+            </p>
+            <mat-form-field floatLabel="auto">
+              <input type="password" class="masked-pw" matInput formControlName="geminiAPIKey" placeholder="Gemini API Key" autocomplete="new-password">
+            </mat-form-field>
+          </div>
+          <div class="row">
+            <p>
+              <span class="mat-body">Gemini Model</span><br>
+              <span class="mat-caption">Default is <code>gemini-3.1-flash-lite</code>. Change only if Google renames the model.</span>
+            </p>
+            <mat-form-field floatLabel="auto">
+              <input type="text" matInput formControlName="geminiModel" placeholder="gemini-3.1-flash-lite" autocomplete="off">
+            </mat-form-field>
+          </div>
+        </ng-container>
 
         <!-- Whisper API Configuration -->
         <div class="row" *ngIf="form?.get('transcriptionConfig')?.get('provider')?.value === 'whisper-api'">
@@ -1496,7 +1670,7 @@
         <div class="row">
           <p>
             <span class="mat-body">Minimum Call Duration (seconds)</span><br>
-            <span class="mat-caption">Skip transcription for calls shorter than this duration. Set to 0 to transcribe all calls. Useful to avoid transcribing very short/test transmissions.</span>
+            <span class="mat-caption">Skip transcription for calls shorter than this duration (applies to all talkgroups). When tones are detected, remaining audio after tones is compared. Set to 0 to only skip tone-only clips (&lt; 2s remaining).</span>
           </p>
           <mat-form-field>
             <input type="number" min="0" step="0.1" matInput formControlName="minCallDuration" placeholder="0" autocomplete="off">
@@ -1683,6 +1857,226 @@
       </div>
 
       </ng-container>
+    </div>
+  </mat-expansion-panel>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <!-- INCIDENT MAPPING -->
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <div id="opt-panel-mappingExpanded" style="height:0;overflow:hidden"></div>
+  <mat-expansion-panel [(expanded)]="mappingExpanded" class="section-panel">
+    <mat-expansion-panel-header>
+      <mat-panel-title>
+        <mat-icon>map</mat-icon>
+        <span>Incident Mapping</span>
+      </mat-panel-title>
+      <mat-panel-description>
+        Mapping engine, geocode cache, boundaries, and related settings
+      </mat-panel-description>
+    </mat-expansion-panel-header>
+
+    <div class="panel-content" *ngIf="mappingForm" [formGroup]="mappingForm">
+      <div class="panel-save-bar">
+        <button mat-stroked-button color="primary" type="button"
+          (click)="saveMappingPanel()"
+          [disabled]="!isMappingDirty || savingMapping">
+          <mat-icon>save</mat-icon>
+          {{ savingMapping ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+
+      <div class="row mapping-row-full">
+        <div class="mapping-external-warn" role="note" style="border-color: rgba(76, 175, 80, 0.35); background: rgba(76, 175, 80, 0.08);">
+          <mat-icon class="mapping-external-warn-icon" color="accent">check_circle</mat-icon>
+          <div class="mapping-external-warn-body">
+            <p class="mapping-external-warn-title" style="color: #a5d6a7;">How mapping works</p>
+            <p class="mapping-external-warn-text">
+              <strong>Step 1 — Assign coverage locations:</strong> under
+              <strong>Systems → Incident Mapping</strong>, set the system geo city / center / radius,
+              then use <strong>Assign locations to talkgroups</strong> and
+              <strong>Assign locations to tone sets</strong> so each call has a jurisdiction for geocoding
+              (tone-set location overrides talkgroup; talkgroup overrides system).
+            </p>
+            <p class="mapping-external-warn-text">
+              <strong>Step 2 — Address extraction:</strong> local rules by default.
+              Optional Gemini short-address extraction is per system under
+              <strong>Systems → Incident Mapping → Extract address with Gemini</strong>
+              (not under Transcription settings).
+            </p>
+            <p class="mapping-external-warn-text">
+              <strong>Step 3 — Outbound geocoding</strong> (when an address needs coordinates):
+              <strong>Thinline Geocoding API</strong> (when subscribed under Thinline Radio Services).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <p>
+          <span class="mat-body">Call nature OpenAI model</span><br>
+          <span class="mat-caption">Chat model used when phrase/rule matching finds no call nature. The OpenAI API key is configured under <strong>External Integrations → OpenAI</strong>. Leave on default to use that panel's chat model.</span>
+        </p>
+        <mat-form-field floatLabel="auto">
+          <mat-select formControlName="openAIModel">
+            <mat-option value="">Default (External Integrations → OpenAI)</mat-option>
+            <mat-option *ngFor="let m of openAIChatModels" [value]="m.id">
+              {{ m.label }}
+            </mat-option>
+          </mat-select>
+          <mat-hint *ngIf="selectedMappingOpenAIModel as sel">
+            <ng-container *ngIf="mappingUsesDefaultOpenAIModel">Using server default: </ng-container>
+            {{ sel.label }} · ${{ sel.inputPerM }}/M in · ${{ sel.outputPerM }}/M out
+          </mat-hint>
+        </mat-form-field>
+      </div>
+
+      <div class="row">
+        <p>
+          <span class="mat-body">Send location context to transcription</span><br>
+          <span class="mat-caption">
+            When enabled, appends the talkgroup/system Location Context or Geo City from Incident Mapping
+            to the STT prompt so providers (Gemini, Whisper, etc.) prefer local place and street spellings.
+          </span>
+        </p>
+        <div>
+          <mat-slide-toggle color="primary" formControlName="sendLocationContext"></mat-slide-toggle>
+        </div>
+      </div>
+
+      <div class="row">
+        <p>
+          <span class="mat-body">Geocode Cache Max Age (days)</span><br>
+          <span class="mat-caption">How long cached geocode results are kept per system.</span>
+        </p>
+        <mat-form-field>
+          <input type="number" min="1" step="1" matInput formControlName="geocodeCacheMaxAgeDays" autocomplete="off">
+        </mat-form-field>
+      </div>
+
+      <div class="row">
+        <div class="mapping-panel-block mapping-boundaries">
+          <h4>Map boundaries (US-wide)</h4>
+          <p class="mapping-panel-lead">
+            Download free US Census TIGER boundaries (counties, cities/villages, townships where defined).
+            Overlays appear on the incident map when enabled. <strong>Counties</strong> render with bold dark
+            outlines; townships and cities use lighter fills if enabled. Start with counties only — adding
+            townships creates a dense mesh that hides county lines.
+          </p>
+
+          <div class="row">
+            <p>
+              <span class="mat-body">Show boundaries on incident map</span><br>
+              <span class="mat-caption">Requires downloaded data below. Save after toggling.</span>
+            </p>
+            <div>
+              <mat-slide-toggle color="primary" formControlName="mapBoundariesEnabled"></mat-slide-toggle>
+            </div>
+          </div>
+
+          <div class="row">
+            <p>
+              <span class="mat-body">Visible layers</span><br>
+              <span class="mat-caption">Which downloaded layers to draw (counties draw underneath places/townships).</span>
+            </p>
+            <mat-form-field floatLabel="auto" class="mapping-field-grow">
+              <mat-label>Layers</mat-label>
+              <mat-select formControlName="mapBoundaryLayers" multiple>
+                <mat-option value="county">Counties</mat-option>
+                <mat-option value="place">Cities &amp; villages</mat-option>
+                <mat-option value="cousub">Townships / county subdivisions</mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+
+          <p class="mapping-hint" *ngIf="boundaryStats">
+            Stored: <strong>{{ boundaryStats.total || 0 }}</strong> boundaries
+            <span *ngIf="boundaryStats.byLayer"> — counties {{ boundaryStats.byLayer['county'] || 0 }},
+              places {{ boundaryStats.byLayer['place'] || 0 }},
+              townships {{ boundaryStats.byLayer['cousub'] || 0 }}</span>
+          </p>
+
+          <div class="mapping-panel-actions mapping-boundary-import">
+            <mat-form-field appearance="outline" class="mapping-field-grow">
+              <mat-label>States to download</mat-label>
+              <mat-select [(ngModel)]="boundaryImportStates" [ngModelOptions]="{standalone: true}" multiple>
+                <mat-option *ngFor="let st of usStateOptions" [value]="st.fips">{{ st.name }} ({{ st.abbr }})</mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+
+          <div class="mapping-boundary-layer-toggles">
+            <mat-checkbox [(ngModel)]="boundaryImportLayers.county" [ngModelOptions]="{standalone: true}">Counties</mat-checkbox>
+            <mat-checkbox [(ngModel)]="boundaryImportLayers.place" [ngModelOptions]="{standalone: true}">Cities &amp; villages</mat-checkbox>
+            <mat-checkbox [(ngModel)]="boundaryImportLayers.cousub" [ngModelOptions]="{standalone: true}">Townships</mat-checkbox>
+            <mat-checkbox [(ngModel)]="boundaryReplaceExisting" [ngModelOptions]="{standalone: true}">Replace existing for selected states/layers</mat-checkbox>
+          </div>
+
+          <div class="mapping-panel-actions">
+            <button mat-raised-button color="primary" type="button" (click)="importBoundaries()" [disabled]="boundaryImporting">
+              {{ boundaryImporting ? 'Downloading…' : 'Download Census boundaries' }}
+            </button>
+            <button mat-stroked-button color="warn" type="button" (click)="clearBoundaries()" [disabled]="boundaryImporting">
+              Clear all
+            </button>
+          </div>
+
+          <mat-progress-bar *ngIf="boundaryImporting" mode="determinate" [value]="boundaryImportPercent"></mat-progress-bar>
+          <p class="mapping-hint" *ngIf="boundaryImporting && boundaryImportProgress">{{ boundaryImportProgress }} ({{ boundaryImportPercent }}%)</p>
+          <div class="mapping-panel-error" *ngIf="boundaryImportError">{{ boundaryImportError }}</div>
+          <div class="mapping-panel-success" *ngIf="boundaryImportResult && !boundaryImporting">{{ boundaryImportResult }}</div>
+        </div>
+      </div>
+    </div>
+  </mat-expansion-panel>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <!-- CALL NATURES -->
+  <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+  <div id="opt-panel-callNaturesExpanded" style="height:0;overflow:hidden"></div>
+  <mat-expansion-panel [(expanded)]="callNaturesExpanded" class="section-panel">
+    <mat-expansion-panel-header>
+      <mat-panel-title>
+        <mat-icon>category</mat-icon>
+        <span>Call Natures</span>
+      </mat-panel-title>
+      <mat-panel-description>
+        Incident categories for call cards, transcript phrase matching, and optional OpenAI classification
+      </mat-panel-description>
+    </mat-expansion-panel-header>
+
+    <div class="panel-content" *ngIf="mappingForm" [formGroup]="mappingForm">
+      <div class="panel-save-bar">
+        <button mat-stroked-button color="primary" type="button"
+          (click)="saveMappingPanel()"
+          [disabled]="!isMappingDirty || savingMapping">
+          <mat-icon>save</mat-icon>
+          {{ savingMapping ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+
+      <div class="row mapping-row-full">
+        <mat-slide-toggle formControlName="callNatureOpenAIClassify">
+          Use OpenAI to classify call nature when no phrase matches
+        </mat-slide-toggle>
+        <p class="mapping-hint">
+          When enabled, transcripts that do not match any phrase below are sent to OpenAI to pick the best category
+          from your enabled call natures. Requires an OpenAI API key under <strong>External Integrations</strong>.
+        </p>
+      </div>
+
+      <div class="row mapping-row-full">
+        <mat-slide-toggle formControlName="suppressUnknownNaturePins">
+          Drop UNKNOWN PROBLEM from map and geocoding
+        </mat-slide-toggle>
+        <p class="mapping-hint">
+          When enabled, catch-all natures like <strong>UNKNOWN PROBLEM</strong> and
+          <strong>UNKNOWN PROBLEM/UNCLASSIFIED</strong> are not geocoded and do not get a map pin.
+          Nature is checked before geocoding so those calls do not use the geocoding API.
+          Classified natures still map normally.
+        </p>
+      </div>
+
+      <rdio-scanner-admin-call-natures></rdio-scanner-admin-call-natures>
     </div>
   </mat-expansion-panel>
 

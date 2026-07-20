@@ -26,6 +26,21 @@ import { firstValueFrom, timer, timeout, Observable, race } from 'rxjs';
 import { AppUpdateService } from '../../../shared/update/update.service';
 import { RdioScannerToneSet } from '../rdio-scanner';
 import type { TranscriptConfig } from './config/transcript-parser/transcript-parser.types';
+import type {
+    IncidentMappingConfig,
+    MappingBoundaryImportStatus,
+    MappingBoundaryStats,
+    MappingDataResponse,
+    MappingIntegrationConfig,
+    MappingToneSetLocationApply,
+    MappingToneSetLocationApplyResult,
+    MappingToneSetLocationList,
+    MappingToneSetLocationSuggestResult,
+    MappingTalkgroupLocationApply,
+    MappingTalkgroupLocationApplyResult,
+    MappingTalkgroupLocationList,
+    MappingTalkgroupLocationSuggestResult,
+} from '../mapping/mapping.types';
 
 /** Align duplicate-detection ms values with admin form validators (min 100 / 1000). */
 function normalizedDuplicateTimestampWindowMs(value: unknown): number {
@@ -117,6 +132,8 @@ export interface User {
     systemAdmin?: boolean;
     pushSystemNoAudioAlerts?: boolean;
     pushApiKeyNoAudioAlerts?: boolean;
+    systemNoAudioAlertSystems?: string;
+    apiKeyNoAudioAlertApiKeys?: string;
     forcePasswordReset?: boolean;
     isGroupAdmin?: boolean;
     userGroupId?: number;
@@ -145,6 +162,15 @@ export interface KeywordList {
     createdAt?: number;
 }
 
+export interface CallNature {
+    id?: number;
+    label: string;
+    phrases?: string[];
+    enabled?: boolean;
+    order?: number;
+    createdAt?: number;
+}
+
 export interface UserGroup {
     id?: number;
     name?: string;
@@ -165,6 +191,20 @@ export interface UserGroup {
     systemAccess?: any[] | string;
     systemDelays?: any[] | string;
     talkgroupDelays?: any[] | string;
+}
+
+export interface ConfigImportSummaryItem {
+    key: string;
+    label: string;
+    expected: number;
+    imported: number;
+    ok: boolean;
+}
+
+export interface SaveConfigResult {
+    config: Config;
+    importSummary?: ConfigImportSummaryItem[];
+    importSummaryMessage?: string;
 }
 
 export interface Config {
@@ -332,6 +372,8 @@ export interface Options {
     stripePublishableKey?: string;
     stripeSecretKey?: string;
     stripeWebhookSecret?: string;
+    /** Optional Stripe Customer Portal configuration id (bpc_…). */
+    stripeBillingPortalConfigurationId?: string;
     stripeGracePeriodDays?: number;
     baseUrl?: string;
     transcriptionEnabled?: boolean;
@@ -350,6 +392,8 @@ export interface Options {
         azureRegion?: string;
         googleAPIKey?: string;
         googleCredentials?: string;
+        geminiAPIKey?: string;
+        geminiModel?: string;
         assemblyAIKey?: string;
         assemblyAISpeechModel?: string;
         assemblyAIWordBoost?: string[];
@@ -527,6 +571,7 @@ export interface System {
     autoLearnUnitAliasesTagIds?: number[];
     autoLearnUnitAliasesAutoOffDays?: number;
     autoLearnUnitAliasesExpiresAt?: number;
+    incidentMapping?: IncidentMappingConfig;
 }
 
 export interface Tag {
@@ -572,6 +617,7 @@ export interface Talkgroup {
     autoLearnUnitAliases?: boolean;
     alertingTalkgroup?: boolean;
     retentionDays?: number;             // Days to retain calls; 0 = inherit system/global
+    incidentMapping?: IncidentMappingConfig;
 }
 
 export interface Unit {
@@ -608,6 +654,9 @@ enum url {
 }
 
 const SESSION_STORAGE_KEY = 'rdio-scanner-admin-token';
+
+/** Fixed relay server URL — must match server/getRelayServerURL() in TLR server. */
+export const RELAY_SERVER_URL = 'https://app.thinlineradio.com';
 
 declare global {
     interface Window {
@@ -1240,25 +1289,33 @@ export class RdioScannerAdminService implements OnDestroy {
         });
     }
 
-    async saveConfig(config: Config, isFullImport: boolean = false): Promise<Config> {
+    async saveConfig(config: Config, isFullImport: boolean = false): Promise<SaveConfigResult> {
         try {
             let headers = this.getHeaders();
             if (isFullImport) {
                 headers = headers.set('X-Full-Import', 'true');
             }
             
-            const res = await firstValueFrom(this.ngHttpClient.put<{ config: Config }>(
+            const res = await firstValueFrom(this.ngHttpClient.put<{
+                config: Config;
+                importSummary?: ConfigImportSummaryItem[];
+                importSummaryMessage?: string;
+            }>(
                 this.getUrl(url.config),
                 config,
                 { headers: headers, responseType: 'json' },
             ));
 
-            return res.config;
+            return {
+                config: res.config,
+                importSummary: res.importSummary,
+                importSummaryMessage: res.importSummaryMessage,
+            };
 
         } catch (error) {
             this.errorHandler(error);
 
-            return config;
+            throw error;
         }
     }
 
@@ -1398,6 +1455,59 @@ export class RdioScannerAdminService implements OnDestroy {
         try {
             await firstValueFrom(this.ngHttpClient.delete(
                 `/api/keyword-lists/${listId}`,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return true;
+        } catch (error) {
+            this.errorHandler(error);
+            return false;
+        }
+    }
+
+    async getCallNatures(): Promise<CallNature[] | undefined> {
+        try {
+            return await firstValueFrom(this.ngHttpClient.get<CallNature[]>(
+                '/api/call-natures',
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    async createCallNature(nature: Partial<CallNature>): Promise<boolean> {
+        try {
+            await firstValueFrom(this.ngHttpClient.post(
+                '/api/call-natures',
+                nature,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return true;
+        } catch (error) {
+            this.errorHandler(error);
+            return false;
+        }
+    }
+
+    async updateCallNature(natureId: number, nature: Partial<CallNature>): Promise<boolean> {
+        try {
+            await firstValueFrom(this.ngHttpClient.put(
+                `/api/call-natures/${natureId}`,
+                nature,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return true;
+        } catch (error) {
+            this.errorHandler(error);
+            return false;
+        }
+    }
+
+    async deleteCallNature(natureId: number): Promise<boolean> {
+        try {
+            await firstValueFrom(this.ngHttpClient.delete(
+                `/api/call-natures/${natureId}`,
                 { headers: this.getHeaders(), responseType: 'json' },
             ));
             return true;
@@ -1585,6 +1695,8 @@ export class RdioScannerAdminService implements OnDestroy {
             systemAdmin: this.ngFormBuilder.control(user?.systemAdmin),
             pushSystemNoAudioAlerts: this.ngFormBuilder.control(user?.pushSystemNoAudioAlerts),
             pushApiKeyNoAudioAlerts: this.ngFormBuilder.control(user?.pushApiKeyNoAudioAlerts),
+            systemNoAudioAlertSystems: this.ngFormBuilder.control(user?.systemNoAudioAlertSystems || '[]'),
+            apiKeyNoAudioAlertApiKeys: this.ngFormBuilder.control(user?.apiKeyNoAudioAlertApiKeys || '[]'),
             forcePasswordReset: this.ngFormBuilder.control(user?.forcePasswordReset),
             isGroupAdmin: this.ngFormBuilder.control(user?.isGroupAdmin),
             userGroupId: this.ngFormBuilder.control(user?.userGroupId),
@@ -1656,6 +1768,8 @@ export class RdioScannerAdminService implements OnDestroy {
             azureRegion: 'eastus',
             googleAPIKey: '',
             googleCredentials: '',
+            geminiAPIKey: '',
+            geminiModel: 'gemini-3.1-flash-lite',
             assemblyAIKey: '',
             assemblyAISpeechModel: '',
             assemblyAIWordBoost: [],
@@ -1720,6 +1834,7 @@ export class RdioScannerAdminService implements OnDestroy {
             stripePublishableKey: this.ngFormBuilder.control(options?.stripePublishableKey),
             stripeSecretKey: this.ngFormBuilder.control(options?.stripeSecretKey),
             stripeWebhookSecret: this.ngFormBuilder.control(options?.stripeWebhookSecret),
+            stripeBillingPortalConfigurationId: this.ngFormBuilder.control(options?.stripeBillingPortalConfigurationId || ''),
             stripeGracePeriodDays: this.ngFormBuilder.control(options?.stripeGracePeriodDays || 0, [Validators.min(0)]),
             baseUrl: this.ngFormBuilder.control(options?.baseUrl),
             adminLocalhostOnly: this.ngFormBuilder.control(options?.adminLocalhostOnly ?? false),
@@ -1741,6 +1856,8 @@ export class RdioScannerAdminService implements OnDestroy {
                 azureRegion: this.ngFormBuilder.control(transcriptionConfig?.azureRegion || 'eastus'),
                 googleAPIKey: this.ngFormBuilder.control(transcriptionConfig?.googleAPIKey || ''),
                 googleCredentials: this.ngFormBuilder.control(transcriptionConfig?.googleCredentials || ''),
+                geminiAPIKey: this.ngFormBuilder.control(transcriptionConfig?.geminiAPIKey || ''),
+                geminiModel: this.ngFormBuilder.control(transcriptionConfig?.geminiModel || 'gemini-3.1-flash-lite'),
                 assemblyAIKey: this.ngFormBuilder.control(transcriptionConfig?.assemblyAIKey || ''),
                 assemblyAISpeechModel: this.ngFormBuilder.control(transcriptionConfig?.assemblyAISpeechModel || ''),
                 assemblyAIWordBoost: this.ngFormBuilder.control(
@@ -1775,7 +1892,7 @@ export class RdioScannerAdminService implements OnDestroy {
             noAudioHistoricalDataDays: this.ngFormBuilder.control(options?.noAudioHistoricalDataDays || 7, [Validators.min(1), Validators.max(90)]),
             noAudioTimeWindow: this.ngFormBuilder.control(options?.noAudioTimeWindow || 12, [Validators.min(1)]),
             noAudioRepeatMinutes: this.ngFormBuilder.control(options?.noAudioRepeatMinutes || 120, [Validators.min(15)]),
-            relayServerURL: this.ngFormBuilder.control('https://tlradioserver.thinlineds.com'), // Hardcoded
+            relayServerURL: this.ngFormBuilder.control(RELAY_SERVER_URL), // Hardcoded
             relayServerAPIKey: this.ngFormBuilder.control(options?.relayServerAPIKey || ''),
             audioEncryptionEnabled: this.ngFormBuilder.control(options?.audioEncryptionEnabled ?? false),
             rateLimitingEnabled: this.ngFormBuilder.control(!!(options?.maxDownloadsPerWindow && options.maxDownloadsPerWindow > 0)),
@@ -1866,6 +1983,21 @@ export class RdioScannerAdminService implements OnDestroy {
             autoLearnUnitAliasesTagIds: this.ngFormBuilder.control(system?.autoLearnUnitAliasesTagIds || []),
             autoLearnUnitAliasesAutoOffDays: this.ngFormBuilder.control(system?.autoLearnUnitAliasesAutoOffDays || 0, [Validators.min(0)]),
             autoLearnUnitAliasesExpiresAt: this.ngFormBuilder.control(system?.autoLearnUnitAliasesExpiresAt || 0),
+            incidentMapping: this.newIncidentMappingForm(system?.incidentMapping, { inherit: false }),
+        });
+    }
+
+    newIncidentMappingForm(cfg?: IncidentMappingConfig, defaults?: { inherit?: boolean }): FormGroup {
+        const inheritDefault = defaults?.inherit ?? false;
+        return this.ngFormBuilder.group({
+            enabled: this.ngFormBuilder.control(cfg?.enabled ?? false),
+            inherit: this.ngFormBuilder.control(cfg?.inherit ?? inheritDefault),
+            geoCity: this.ngFormBuilder.control(cfg?.geoCity ?? ''),
+            geoLat: this.ngFormBuilder.control(cfg?.geoLat ?? 0),
+            geoLon: this.ngFormBuilder.control(cfg?.geoLon ?? 0),
+            geoRadiusMiles: this.ngFormBuilder.control(cfg?.geoRadiusMiles ?? 25),
+            locationContext: this.ngFormBuilder.control(cfg?.locationContext ?? ''),
+            extractAddressWithGemini: this.ngFormBuilder.control(cfg?.extractAddressWithGemini ?? false),
         });
     }
 
@@ -1902,6 +2034,11 @@ export class RdioScannerAdminService implements OnDestroy {
                     downstreamEnabled: this.ngFormBuilder.control(toneSet.downstreamEnabled || false),
                     downstreamURL: this.ngFormBuilder.control(toneSet.downstreamURL || ''),
                     downstreamAPIKey: this.ngFormBuilder.control(toneSet.downstreamAPIKey || ''),
+                    geoCity: this.ngFormBuilder.control(toneSet.geoCity || ''),
+                    geoLat: this.ngFormBuilder.control(toneSet.geoLat ?? null),
+                    geoLon: this.ngFormBuilder.control(toneSet.geoLon ?? null),
+                    geoRadiusMiles: this.ngFormBuilder.control(toneSet.geoRadiusMiles ?? null),
+                    locationContext: this.ngFormBuilder.control(toneSet.locationContext || ''),
                 });
                 toneSetsArray.push(toneSetForm as any);
             });
@@ -1936,7 +2073,132 @@ export class RdioScannerAdminService implements OnDestroy {
             autoLearnUnitAliases: this.ngFormBuilder.control(talkgroup?.autoLearnUnitAliases || false),
             alertingTalkgroup: this.ngFormBuilder.control(talkgroup?.alertingTalkgroup || false),
             retentionDays: this.ngFormBuilder.control(talkgroup?.retentionDays ?? 0, [Validators.min(0)]),
+            incidentMapping: this.newIncidentMappingForm(talkgroup?.incidentMapping, { inherit: true }),
         });
+    }
+
+    async getMappingConfig(): Promise<MappingIntegrationConfig> {
+        return firstValueFrom(this.ngHttpClient.get<MappingIntegrationConfig>(
+            `${window.location.origin}/api/admin/mapping/config`,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async saveMappingConfig(config: MappingIntegrationConfig): Promise<void> {
+        await firstValueFrom(this.ngHttpClient.put(
+            `${window.location.origin}/api/admin/mapping/config`,
+            config,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async getMappingData(systemId: number, talkgroupId?: number): Promise<MappingDataResponse> {
+        let url = `${window.location.origin}/api/admin/mapping/data?systemId=${systemId}`;
+        if (talkgroupId && talkgroupId > 0) {
+            url += `&talkgroupId=${talkgroupId}`;
+        }
+        return firstValueFrom(this.ngHttpClient.get<MappingDataResponse>(url, { headers: this.getHeaders() }));
+    }
+
+    async addMappingRow(
+        systemId: number,
+        kind: 'street' | 'correction' | 'place',
+        body: Record<string, unknown>,
+        talkgroupId?: number,
+    ): Promise<void> {
+        let url = `${window.location.origin}/api/admin/mapping/data?systemId=${systemId}`;
+        if (talkgroupId && talkgroupId > 0) {
+            url += `&talkgroupId=${talkgroupId}`;
+        }
+        await firstValueFrom(this.ngHttpClient.post(url, { kind, ...body }, { headers: this.getHeaders() }));
+    }
+
+    async deleteMappingRow(kind: 'street' | 'correction' | 'place', id: number): Promise<void> {
+        const url = `${window.location.origin}/api/admin/mapping/data?kind=${kind}&id=${id}`;
+        await firstValueFrom(this.ngHttpClient.delete(url, { headers: this.getHeaders() }));
+    }
+
+    async startBoundaryImport(body: {
+        stateFips: string[];
+        layers: string[];
+        replaceExisting?: boolean;
+    }): Promise<{ status: string }> {
+        return firstValueFrom(this.ngHttpClient.post<{ status: string }>(
+            `${window.location.origin}/api/admin/mapping/import-boundaries`,
+            body,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async getBoundaryImportStatus(): Promise<MappingBoundaryImportStatus> {
+        return firstValueFrom(this.ngHttpClient.get<MappingBoundaryImportStatus>(
+            `${window.location.origin}/api/admin/mapping/import-boundaries/status`,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async getBoundaryStats(): Promise<MappingBoundaryStats> {
+        return firstValueFrom(this.ngHttpClient.get<MappingBoundaryStats>(
+            `${window.location.origin}/api/admin/mapping/boundaries/stats`,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async deleteAllBoundaries(): Promise<void> {
+        await firstValueFrom(this.ngHttpClient.delete(
+            `${window.location.origin}/api/admin/mapping/boundaries`,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async listToneSetLocations(systemId: number): Promise<MappingToneSetLocationList> {
+        return firstValueFrom(this.ngHttpClient.get<MappingToneSetLocationList>(
+            `${window.location.origin}/api/admin/mapping/tone-set-locations?systemId=${systemId}`,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async applyToneSetLocations(systemId: number, toneSets: MappingToneSetLocationApply[]): Promise<MappingToneSetLocationApplyResult> {
+        return firstValueFrom(this.ngHttpClient.post<MappingToneSetLocationApplyResult>(
+            `${window.location.origin}/api/admin/mapping/apply-tone-set-locations`,
+            { systemId, toneSets },
+            { headers: this.getHeaders() },
+        ).pipe(timeout(60000)));
+    }
+
+    async suggestToneSetLocations(systemId: number, onlyEmpty = true): Promise<MappingToneSetLocationSuggestResult> {
+        return firstValueFrom(this.ngHttpClient.post<MappingToneSetLocationSuggestResult>(
+            `${window.location.origin}/api/admin/mapping/suggest-tone-set-locations`,
+            { systemId, onlyEmpty },
+            { headers: this.getHeaders() },
+        ).pipe(timeout(120000)));
+    }
+
+    async listTalkgroupLocations(systemId: number): Promise<MappingTalkgroupLocationList> {
+        return firstValueFrom(this.ngHttpClient.get<MappingTalkgroupLocationList>(
+            `${window.location.origin}/api/admin/mapping/talkgroup-locations?systemId=${systemId}`,
+            { headers: this.getHeaders() },
+        ));
+    }
+
+    async applyTalkgroupLocations(systemId: number, talkgroups: MappingTalkgroupLocationApply[]): Promise<MappingTalkgroupLocationApplyResult> {
+        return firstValueFrom(this.ngHttpClient.post<MappingTalkgroupLocationApplyResult>(
+            `${window.location.origin}/api/admin/mapping/apply-talkgroup-locations`,
+            { systemId, talkgroups },
+            { headers: this.getHeaders() },
+        ).pipe(timeout(60000)));
+    }
+
+    async suggestTalkgroupLocations(
+        systemId: number,
+        onlyEmpty = true,
+        talkgroupIds?: number[],
+    ): Promise<MappingTalkgroupLocationSuggestResult> {
+        return firstValueFrom(this.ngHttpClient.post<MappingTalkgroupLocationSuggestResult>(
+            `${window.location.origin}/api/admin/mapping/suggest-talkgroup-locations`,
+            { systemId, onlyEmpty, talkgroupIds: talkgroupIds?.length ? talkgroupIds : undefined },
+            { headers: this.getHeaders() },
+        ).pipe(timeout(180000)));
     }
 
     importToneSets(format: 'twotone' | 'csv', content: string): Observable<ToneImportResponse> {

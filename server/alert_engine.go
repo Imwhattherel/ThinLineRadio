@@ -42,6 +42,10 @@ type AlertEngine struct {
 	// cleanupOldAlerts run.  Compared atomically so that concurrent createAlert
 	// calls don't launch redundant cleanup goroutines.
 	lastCleanupUnix atomic.Int64
+
+	// keywordAlertLocks serializes upsert for a call+system+talkgroup so concurrent
+	// TriggerKeywordAlerts goroutines cannot double-insert before the unique index sees the row.
+	keywordAlertLocks sync.Map // string -> *sync.Mutex
 }
 
 // NewAlertEngine creates a new alert engine
@@ -550,14 +554,13 @@ func (engine *AlertEngine) userMatchesToneSetFilter(toneSetIdsRaw string, call *
 	return false
 }
 
-// TriggerKeywordAlerts triggers alerts for keyword matches
-// This is called per-user but creates alerts once per keyword match group
-func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, talkgroupId uint64, userId uint64, matches []KeywordMatch, transcript *TranscriptionResult) {
+// UpsertKeywordAlert ensures exactly one keyword alert row exists per call.
+// Call once per keyword match batch (before per-user notification goroutines).
+func (engine *AlertEngine) UpsertKeywordAlert(callId, systemId, talkgroupId uint64, matches []KeywordMatch, transcript *TranscriptionResult) {
 	if len(matches) == 0 {
 		return
 	}
 
-	// Build keywords matched list
 	keywordsMatched := make([]string, len(matches))
 	for i, match := range matches {
 		keywordsMatched[i] = match.Keyword
@@ -565,7 +568,6 @@ func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, 
 	keywordsJson, _ := json.Marshal(keywordsMatched)
 	keywordsJsonStr := string(keywordsJson)
 
-	// Get transcript snippet (first 200 chars)
 	transcriptSnippet := ""
 	if transcript != nil && transcript.Transcript != "" {
 		transcriptSnippet = transcript.Transcript
@@ -574,8 +576,16 @@ func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, 
 		}
 	}
 
-	// Check if any keyword alert already exists for this call — match on callId only,
-	// not on the keyword set, so we never create a second row for the same call.
+	lockKey := fmt.Sprintf("%d-%d-%d", callId, systemId, talkgroupId)
+	muIface, _ := engine.keywordAlertLocks.LoadOrStore(lockKey, &sync.Mutex{})
+	mu := muIface.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	engine.mergeOrCreateKeywordAlert(callId, systemId, talkgroupId, keywordsJsonStr, transcriptSnippet)
+}
+
+func (engine *AlertEngine) mergeOrCreateKeywordAlert(callId, systemId, talkgroupId uint64, keywordsJsonStr, transcriptSnippet string) {
 	var existingAlertId uint64
 	var existingKeywordsJson string
 	var checkQuery string
@@ -585,7 +595,6 @@ func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, 
 		checkQuery = `SELECT "alertId", "keywordsMatched" FROM "alerts" WHERE "callId" = ? AND "systemId" = ? AND "talkgroupId" = ? AND "alertType" = 'keyword' LIMIT 1`
 	}
 	if err := engine.controller.Database.Sql.QueryRow(checkQuery, callId, systemId, talkgroupId).Scan(&existingAlertId, &existingKeywordsJson); err == nil {
-		// Alert already exists — merge any new keywords into it.
 		mergedJson := mergeKeywordsJson(existingKeywordsJson, keywordsJsonStr)
 		if mergedJson != existingKeywordsJson {
 			var updateQuery string
@@ -596,21 +605,36 @@ func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, 
 			}
 			engine.controller.Database.Sql.Exec(updateQuery, mergedJson, existingAlertId)
 		}
-	} else {
-		// No alert yet — create one.
-		engine.createAlert(&AlertRecord{
-			CallId:            callId,
-			SystemId:          systemId,
-			TalkgroupId:       talkgroupId,
-			AlertType:         "keyword",
-			ToneDetected:      false,
-			KeywordsMatched:   keywordsJsonStr,
-			TranscriptSnippet: transcriptSnippet,
-			CreatedAt:         time.Now().UnixMilli(),
-		})
+		if transcriptSnippet != "" {
+			var snippetQuery string
+			if engine.controller.Database.Config.DbType == DbTypePostgresql {
+				snippetQuery = `UPDATE "alerts" SET "transcriptSnippet" = $1 WHERE "alertId" = $2 AND ("transcriptSnippet" = '' OR "transcriptSnippet" IS NULL)`
+			} else {
+				snippetQuery = `UPDATE "alerts" SET "transcriptSnippet" = ? WHERE "alertId" = ? AND ("transcriptSnippet" = '' OR "transcriptSnippet" IS NULL)`
+			}
+			engine.controller.Database.Sql.Exec(snippetQuery, transcriptSnippet, existingAlertId)
+		}
+		return
 	}
 
-	// Get user object to check delays
+	engine.createAlert(&AlertRecord{
+		CallId:            callId,
+		SystemId:          systemId,
+		TalkgroupId:       talkgroupId,
+		AlertType:         "keyword",
+		ToneDetected:      false,
+		KeywordsMatched:   keywordsJsonStr,
+		TranscriptSnippet: transcriptSnippet,
+		CreatedAt:         time.Now().UnixMilli(),
+	})
+}
+
+// TriggerKeywordAlerts sends keyword alert notifications for a user.
+// The alert DB row is created once via UpsertKeywordAlert before this is called.
+func (engine *AlertEngine) TriggerKeywordAlerts(callId uint64, systemId uint64, talkgroupId uint64, userId uint64, matches []KeywordMatch, transcript *TranscriptionResult) {
+	if len(matches) == 0 {
+		return
+	}
 	user := engine.controller.Users.GetUserById(userId)
 	if user == nil {
 		// If we can't get the user, send notification immediately (fallback)

@@ -284,6 +284,16 @@ var PostgresqlSchema = []string{
     "createdAt" bigint NOT NULL DEFAULT 0
   );`,
 
+	`CREATE TABLE IF NOT EXISTS "callNatures" (
+    "callNatureId" bigserial NOT NULL PRIMARY KEY,
+    "label" text NOT NULL,
+    "phrases" text NOT NULL DEFAULT '[]',
+    "enabled" boolean NOT NULL DEFAULT true,
+    "order" integer NOT NULL DEFAULT 0,
+    "createdAt" bigint NOT NULL DEFAULT 0
+  );`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS "callNatures_label_uidx" ON "callNatures" ("label");`,
+
 	`CREATE TABLE IF NOT EXISTS "alerts" (
     "alertId" bigserial NOT NULL PRIMARY KEY,
     "callId" bigint NOT NULL,
@@ -302,6 +312,7 @@ var PostgresqlSchema = []string{
 
 	`CREATE INDEX IF NOT EXISTS "alerts_created_idx" ON "alerts" ("createdAt");`,
 	`CREATE INDEX IF NOT EXISTS "alerts_call_idx" ON "alerts" ("callId");`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS "alerts_keyword_call_uidx" ON "alerts" ("callId", "systemId", "talkgroupId") WHERE "alertType" = 'keyword';`,
 
 	`CREATE TABLE IF NOT EXISTS "transcriptions" (
     "transcriptionId" bigserial NOT NULL PRIMARY KEY,

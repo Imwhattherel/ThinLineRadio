@@ -35,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -68,12 +69,14 @@ type Controller struct {
 	HydraTranscriptionRetrievalQueue *HydraTranscriptionRetrievalQueue
 	KeywordMatcher                   *KeywordMatcher
 	AlertEngine                      *AlertEngine
+	IncidentMappingQueue             *IncidentMappingQueue
 	HallucinationDetector            *HallucinationDetector
 	CentralManagement                *CentralManagementService
 	Health                           *HealthService
 	// Performance caches
 	PreferencesCache  *PreferencesCache
 	KeywordListsCache *KeywordListsCache
+	CallNaturesCache  *CallNaturesCache
 	IdLookupsCache    *IdLookupsCache
 	RecentAlertsCache *RecentAlertsCache
 	DedupCache        *DedupCache
@@ -82,6 +85,8 @@ type Controller struct {
 	Unregister        chan *Client
 	Ingest            chan *Call
 	running           bool
+	startupReady      atomic.Bool
+	startupReadyAt    atomic.Int64 // unix nanos when config finished loading
 	workerCancel      context.CancelFunc // Function to cancel worker context
 	workersWg         sync.WaitGroup     // WaitGroup to track worker goroutines
 	workerStats       struct {
@@ -124,6 +129,13 @@ type Controller struct {
 	// Rate limiting
 	RateLimiter         *RateLimiter
 	LoginAttemptTracker *LoginAttemptTracker
+	// TileRateLimiter is a separate, much higher-ceiling limiter for the map
+	// tile proxy. A single page load/pan/zoom or a radar animation cycle can
+	// legitimately fire hundreds of tile requests in a few seconds — far more
+	// than any other endpoint — and the tile handler already protects the
+	// upstream providers with on-disk caching + singleflight de-duplication,
+	// so it doesn't need (and shouldn't share) the general anti-abuse budget.
+	TileRateLimiter *RateLimiter
 
 	// Auto-updater
 	Updater *Updater
@@ -147,6 +159,24 @@ type Controller struct {
 	RelaySuspensionMu   sync.RWMutex
 	RelayFullySuspended bool
 	RelaySuspendMessage string
+
+	// Relay account sign-in (see relay_account.go). Username + refresh token
+	// are persisted (Options); the short-lived access token and everything
+	// below is in-memory only — reacquired from the refresh token on restart.
+	RelayAccountMu              sync.RWMutex
+	RelayAccountAccessToken     string
+	RelayAccountAccessExpiresAt time.Time
+	RelayAccountLastError       string
+
+	// Nominatim geocoding add-on subscription state, mirrored from the
+	// relay's /api/geocode/status poll (see relay_account.go pollNominatimStatusOnce).
+	NominatimMu                 sync.RWMutex
+	NominatimSubscriptionStatus string
+	NominatimCurrentPeriodEnd   time.Time
+	// NominatimGatewayURL is the nominatim-gateway's public URL (e.g.
+	// https://geocode.thinlineradio.com), also learned from that same poll —
+	// this TLR server calls it DIRECTLY for geocoding, no relay proxying.
+	NominatimGatewayURL string
 }
 
 // WaitingShortCall represents a short voice call that is waiting for a longer one to arrive
@@ -209,6 +239,7 @@ func NewController(config *Config) *Controller {
 	// Initialize performance caches
 	controller.PreferencesCache = NewPreferencesCache(controller)
 	controller.KeywordListsCache = NewKeywordListsCache(controller)
+	controller.CallNaturesCache = NewCallNaturesCache(controller)
 	controller.IdLookupsCache = NewIdLookupsCache(controller)
 	controller.RecentAlertsCache = NewRecentAlertsCache(controller)
 	controller.DedupCache = NewDedupCache(defaults.options.duplicateDetectionTimeFrame)
@@ -242,11 +273,17 @@ func NewController(config *Config) *Controller {
 	controller.ToneDetector = NewToneDetector()
 	controller.KeywordMatcher = NewKeywordMatcher()
 	controller.AlertEngine = NewAlertEngine(controller)
+	controller.IncidentMappingQueue = NewIncidentMappingQueue(controller)
 	controller.HallucinationDetector = NewHallucinationDetector(controller)
 
 	// Initialize rate limiting
 	// General rate limiter: 1000 requests per minute per IP
 	controller.RateLimiter = NewRateLimiter(1000, 1*time.Minute)
+	// Tile rate limiter: much higher ceiling — map tiles are bulky by nature
+	// (a single viewport render or radar animation cycle needs hundreds of
+	// them) and are already disk-cached + singleflight-deduped, so they get
+	// their own budget instead of competing with API calls for the general one.
+	controller.TileRateLimiter = NewRateLimiter(12000, 1*time.Minute)
 	// Login attempt tracker: 6 failed attempts = 15 minute block
 	controller.LoginAttemptTracker = NewLoginAttemptTracker(6, 15*time.Minute)
 
@@ -1199,6 +1236,10 @@ func (controller *Controller) processToneDetection(call *Call) {
 		// This prevents a race condition where transcription checks for tones before the DB is updated
 		controller.updateCallToneSequence(call.Id, toneSequence)
 
+		if len(matchedToneSets) > 0 {
+			go controller.remapIncidentIfTranscriptReady(call.Id)
+		}
+
 		// IMMEDIATE PRE-ALERT: Send notification as soon as tones are detected
 		// This allows users to tune in right away without waiting for transcription
 		// Pre-alerts are not saved to database - they're instant notifications only
@@ -1982,8 +2023,8 @@ func (controller *Controller) checkAndAttachPendingTones(call *Call) bool {
 		}
 	}
 
-	// Update call in database with attached tones
-	go controller.updateCallToneSequence(call.Id, pending.ToneSequence)
+	// Persist attached tones before incident mapping reloads the call from the DB.
+	controller.updateCallToneSequence(call.Id, pending.ToneSequence)
 
 	// Clear pending tones (only attach to FIRST voice call)
 	controller.pendingTonesMutex.Lock()
@@ -2250,7 +2291,7 @@ func (controller *Controller) hasMeaningfulVoiceContent(transcript string) bool 
 	return len(words) >= minVoiceWordCount
 }
 
-// updateCallToneSequence updates tone sequence in database (async)
+// updateCallToneSequence persists tone sequence and hasTones on the call row.
 func (controller *Controller) updateCallToneSequence(callId uint64, toneSequence *ToneSequence) {
 	toneSequenceJson, err := SerializeToneSequence(toneSequence)
 	if err != nil {
@@ -2346,7 +2387,10 @@ func (controller *Controller) storeWaitingShortCall(call *Call, pending *Pending
 		}
 
 		// Update call in database with attached tones
-		go controller.updateCallToneSequence(shortCall.Id, waiting.PendingTones.ToneSequence)
+		controller.updateCallToneSequence(shortCall.Id, waiting.PendingTones.ToneSequence)
+		if strings.TrimSpace(shortCall.Transcript) != "" {
+			go controller.remapIncidentIfTranscriptReady(shortCall.Id)
+		}
 
 		// Clear pending tones
 		controller.pendingTonesMutex.Lock()
@@ -2455,13 +2499,104 @@ func (controller *Controller) resetStuckTranscriptions() {
 	}
 }
 
+// markTranscriptionSkipped records that a call was deliberately never queued
+// for transcription (too short, no alert/tone/keyword/auto-learn reason,
+// alerts disabled, etc.) so it doesn't sit at the 'pending' default forever —
+// 'pending' should only mean "queued and waiting," not "will never run."
+func (controller *Controller) markTranscriptionSkipped(callId uint64, reason string) {
+	reason = escapeQuotes(reason)
+	if len(reason) > 500 {
+		reason = reason[:500]
+	}
+	query := fmt.Sprintf(`UPDATE "calls" SET "transcriptionStatus" = 'skipped', "transcriptionFailureReason" = '%s' WHERE "callId" = %d AND "transcriptionStatus" = 'pending'`, reason, callId)
+	if _, err := controller.Database.Sql.Exec(query); err != nil {
+		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to mark call %d transcription skipped: %v", callId, err))
+	}
+}
+
+// markTranscriptionFailed records a real error that prevented queueing (e.g.
+// ffprobe failure) as 'failed' rather than leaving the call stuck at
+// 'pending' — 'failed' calls are already surfaced/retryable via the admin
+// transcription-failures tool, unlike deliberate 'skipped' calls.
+func (controller *Controller) markTranscriptionFailed(callId uint64, reason string) {
+	reason = escapeQuotes(reason)
+	if len(reason) > 500 {
+		reason = reason[:500]
+	}
+	query := fmt.Sprintf(`UPDATE "calls" SET "transcriptionStatus" = 'failed', "transcriptionFailureReason" = '%s' WHERE "callId" = %d AND "transcriptionStatus" = 'pending'`, reason, callId)
+	if _, err := controller.Database.Sql.Exec(query); err != nil {
+		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to mark call %d transcription failed: %v", callId, err))
+	}
+}
+
+// callToneDurationSeconds sums detected tone lengths on a call.
+func callToneDurationSeconds(call *Call) float64 {
+	if call == nil || !call.HasTones || call.ToneSequence == nil {
+		return 0
+	}
+	var total float64
+	for _, tone := range call.ToneSequence.Tones {
+		total += tone.Duration
+	}
+	return total
+}
+
+// effectiveTranscriptionAudioSeconds is the audio length that should be compared
+// against MinCallDuration — full clip, or remaining after known tones.
+func effectiveTranscriptionAudioSeconds(audioDuration float64, call *Call) float64 {
+	toneDuration := callToneDurationSeconds(call)
+	if toneDuration <= 0 {
+		return audioDuration
+	}
+	remaining := audioDuration - toneDuration
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// bypassMinCallDurationForCall reports whether MinCallDuration should be skipped.
+// Only the talkgroup-level AlertingTalkgroup flag qualifies — not user alert
+// preferences, tone detection, or keyword alerts (those previously caused nearly
+// every call to bypass the floor).
+func bypassMinCallDurationForCall(call *Call) bool {
+	return call != nil && call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup
+}
+
+// transcriptionDurationDecision evaluates MinCallDuration / tone-only floors.
+// When skip is true, reason is a short machine-readable skip reason.
+func (controller *Controller) transcriptionDurationDecision(call *Call, minDuration float64) (skip bool, reason string, audioDuration float64, err error) {
+	audioDuration, err = controller.getCallDuration(call)
+	if err != nil {
+		return true, fmt.Sprintf("ffprobe_error: %v", err), 0, err
+	}
+	effective := effectiveTranscriptionAudioSeconds(audioDuration, call)
+	const minRemainingAfterTones = 2.0
+
+	// Tone-heavy clips with almost no speech left — never worth STT.
+	if callToneDurationSeconds(call) > 0 && effective < minRemainingAfterTones {
+		return true, fmt.Sprintf("tone_only_remaining (%.1fs < %.1fs)", effective, minRemainingAfterTones), audioDuration, nil
+	}
+	// Alerting talkgroups always STT voiced traffic; skip the admin min-duration
+	// floor only. User-enabled alerts on normal talkgroups still honor minDuration.
+	if bypassMinCallDurationForCall(call) {
+		return false, "", audioDuration, nil
+	}
+	if minDuration > 0 && effective < minDuration {
+		return true, fmt.Sprintf("duration_below_minimum (%.1fs < %.1fs)", effective, minDuration), audioDuration, nil
+	}
+	return false, "", audioDuration, nil
+}
+
 // queueTranscriptionIfNeeded queues transcription if at least one user has alerts enabled for this talkgroup
 func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 	// Admin-level gate: skip transcription entirely if alerts are disabled at system or talkgroup level
 	if call.System != nil && !call.System.AlertsEnabled {
+		controller.markTranscriptionSkipped(call.Id, "system_alerts_disabled")
 		return
 	}
 	if call.Talkgroup != nil && !call.Talkgroup.AlertsEnabled {
+		controller.markTranscriptionSkipped(call.Id, "talkgroup_alerts_disabled")
 		return
 	}
 
@@ -2472,41 +2607,57 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 	controller.Options.mutex.Unlock()
 
 	if hydraEnabled && hydraAPIKey != "" && call.TransmissionId != "" {
-		// Queue for Hydra retrieval instead of local transcription
-		// Verify transmission_id from database to ensure it matches what was stored
-		var dbTransmissionId string
-		verifyQuery := `SELECT "transmissionId" FROM "calls" WHERE "callId" = $1`
-		if controller.Database.Config.DbType != DbTypePostgresql {
-			verifyQuery = `SELECT "transmissionId" FROM "calls" WHERE "callId" = ?`
-		}
-		err := controller.Database.Sql.QueryRow(verifyQuery, call.Id).Scan(&dbTransmissionId)
-		if err != nil {
-			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to verify transmission_id for call %d: %v, using in-memory value", call.Id, err))
-			dbTransmissionId = call.TransmissionId // Fallback to in-memory value
-		}
+		// Same duration gate as local STT — Hydra previously skipped MinCallDuration.
+		minDuration := controller.Options.TranscriptionConfig.MinCallDuration
+		go func() {
+			skip, reason, audioDuration, err := controller.transcriptionDurationDecision(call, minDuration)
+			if err != nil {
+				controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("ffprobe failed for call %d (will skip Hydra transcription): %v", call.Id, err))
+				controller.markTranscriptionFailed(call.Id, reason)
+				return
+			}
+			if skip {
+				if strings.HasPrefix(reason, "tone_only_remaining") {
+					controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping Hydra transcription for call %d: %s (total %.1fs)", call.Id, reason, audioDuration))
+					updateQuery := fmt.Sprintf(`UPDATE "calls" SET "transcriptionStatus" = 'completed' WHERE "callId" = %d`, call.Id)
+					controller.Database.Sql.Exec(updateQuery)
+					return
+				}
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping Hydra transcription for call %d: %s (total %.1fs)", call.Id, reason, audioDuration))
+				controller.markTranscriptionSkipped(call.Id, reason)
+				return
+			}
 
-		// Use database value if available, otherwise fall back to in-memory value
-		transmissionIdToUse := dbTransmissionId
-		if transmissionIdToUse == "" {
-			transmissionIdToUse = call.TransmissionId
-		}
-
-		if transmissionIdToUse == "" {
-			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("skipping Hydra transcription for call %d: no transmission_id found", call.Id))
-			return
-		}
-
-		if controller.HydraTranscriptionRetrievalQueue == nil {
-			log.Printf("queueTranscriptionIfNeeded: initializing Hydra retrieval queue for call %d", call.Id)
-			controller.HydraTranscriptionRetrievalQueue = NewHydraTranscriptionRetrievalQueue(controller)
-		}
-		controller.HydraTranscriptionRetrievalQueue.QueueJob(HydraTranscriptionRetrievalJob{
-			CallId:         call.Id,
-			TransmissionId: transmissionIdToUse,
-			RequestId:      call.RequestId,
-			QueuedAt:       time.Now(),
-		})
-		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("queued call %d for Hydra transcription retrieval (transmission_id=%s)", call.Id, transmissionIdToUse))
+			var dbTransmissionId string
+			verifyQuery := `SELECT "transmissionId" FROM "calls" WHERE "callId" = $1`
+			if controller.Database.Config.DbType != DbTypePostgresql {
+				verifyQuery = `SELECT "transmissionId" FROM "calls" WHERE "callId" = ?`
+			}
+			if qerr := controller.Database.Sql.QueryRow(verifyQuery, call.Id).Scan(&dbTransmissionId); qerr != nil {
+				controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to verify transmission_id for call %d: %v, using in-memory value", call.Id, qerr))
+				dbTransmissionId = call.TransmissionId
+			}
+			transmissionIdToUse := dbTransmissionId
+			if transmissionIdToUse == "" {
+				transmissionIdToUse = call.TransmissionId
+			}
+			if transmissionIdToUse == "" {
+				controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("skipping Hydra transcription for call %d: no transmission_id found", call.Id))
+				controller.markTranscriptionFailed(call.Id, "hydra_missing_transmission_id")
+				return
+			}
+			if controller.HydraTranscriptionRetrievalQueue == nil {
+				log.Printf("queueTranscriptionIfNeeded: initializing Hydra retrieval queue for call %d", call.Id)
+				controller.HydraTranscriptionRetrievalQueue = NewHydraTranscriptionRetrievalQueue(controller)
+			}
+			controller.HydraTranscriptionRetrievalQueue.QueueJob(HydraTranscriptionRetrievalJob{
+				CallId:         call.Id,
+				TransmissionId: transmissionIdToUse,
+				RequestId:      call.RequestId,
+				QueuedAt:       time.Now(),
+			})
+			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("queued call %d for Hydra transcription retrieval (transmission_id=%s)", call.Id, transmissionIdToUse))
+		}()
 		return // Skip normal transcription queue
 	}
 
@@ -2519,124 +2670,41 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 		return
 	}
 
-	// Check if transcription is needed
-	needsTranscription := false
 	priority := 50
-	reasons := []string{}
-
-	// Check minimum call duration if configured
-	// EXCEPTION: Tone-enabled talkgroups bypass this check if they have > 2s after tone removal
-	// Do this check asynchronously to avoid blocking the worker
 	minDuration := controller.Options.TranscriptionConfig.MinCallDuration
-	toneDetectionEnabled := call.Talkgroup != nil && call.Talkgroup.ToneDetectionEnabled
-	alertingTalkgroup := call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup
-	autoLearnToneSets := call.System != nil && call.Talkgroup != nil &&
-		call.Talkgroup.AutoLearnToneSets &&
-		call.System.AlertsEnabled && call.Talkgroup.AlertsEnabled
-	autoLearnUnitAliases := unitLearnEnabled(call) && callHasUnitRefs(call)
 
-	if minDuration > 0 {
-		// Check duration in a separate goroutine to avoid blocking
-		go func() {
-			audioDuration, err := controller.getCallDuration(call)
-			if err != nil {
-				// ffprobe failed - log but don't block
-				controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("ffprobe failed for call %d (will skip transcription): %v", call.Id, err))
-				return
-			}
-
-			// For tone-enabled talkgroups with detected tones, check remaining audio
-			if toneDetectionEnabled && call.HasTones && call.ToneSequence != nil && len(call.ToneSequence.Tones) > 0 {
-				// Calculate total tone duration
-				toneDuration := 0.0
-				for _, tone := range call.ToneSequence.Tones {
-					toneDuration += tone.Duration
-				}
-
-				// Calculate remaining audio duration after tones would be removed
-				remainingDuration := audioDuration - toneDuration
-				const minRemainingDuration = 2.0
-
-				if remainingDuration < minRemainingDuration {
-					// Tone-only call - don't queue for transcription (avoids locking pending tones)
-					controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d on tone-enabled talkgroup: remaining audio after tone removal (%.1fs) is less than minimum (%.1fs) - tone-only", call.Id, remainingDuration, minRemainingDuration))
-					updateQuery := fmt.Sprintf(`UPDATE "calls" SET "transcriptionStatus" = 'completed' WHERE "callId" = %d`, call.Id)
-					controller.Database.Sql.Exec(updateQuery)
-					return
-				}
-
-				// Has > 2s remaining after tones - bypass global minimum and transcribe
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on tone-enabled talkgroup: bypassing global minimum (%.1fs < %.1fs), %.1fs remaining after %.1fs tones", call.Id, audioDuration, minDuration, remainingDuration, toneDuration))
-				// Continue to alert checks (bypassed global minimum)
-			} else if toneDetectionEnabled && audioDuration >= minDuration {
-				// Tone-enabled talkgroup without tones but meets global minimum - allow
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on tone-enabled talkgroup: meets global minimum (%.1fs >= %.1fs)", call.Id, audioDuration, minDuration))
-				// Continue to alert checks
-			} else if toneDetectionEnabled && audioDuration < minDuration {
-				// Tone-detection talkgroups always bypass the minimum duration — short calls may be
-				// the voice dispatch that follows a tone page on a separate call
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on tone-enabled talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
-				// Continue to alert checks
-			} else if alertingTalkgroup && audioDuration < minDuration {
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on alerting talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
-			} else if autoLearnToneSets && audioDuration < minDuration {
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on auto-learn talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
-			} else if autoLearnUnitAliases && audioDuration < minDuration {
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on unit alias auto-learn talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
-			} else if audioDuration < minDuration {
-				// Normal check for non-tone-enabled talkgroups or calls without tones
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d: duration %.1fs is less than minimum %.1fs", call.Id, audioDuration, minDuration))
-				return
-			}
-
-			// NEW: Check if audio is mostly tones (would result in very short remaining audio after tone removal)
-			// This applies to calls with tones but NOT on tone-enabled talkgroups (already handled above)
-			if !toneDetectionEnabled && call.HasTones && call.ToneSequence != nil && len(call.ToneSequence.Tones) > 0 {
-				// Calculate total tone duration
-				toneDuration := 0.0
-				for _, tone := range call.ToneSequence.Tones {
-					toneDuration += tone.Duration
-				}
-
-				// Calculate remaining audio duration after tones would be removed
-				remainingDuration := audioDuration - toneDuration
-				const minRemainingDuration = 2.0
-
-				if remainingDuration < minRemainingDuration {
-					controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d: remaining audio after tone removal (%.1fs) is less than minimum (%.1fs) - likely tone-only", call.Id, remainingDuration, minRemainingDuration))
-					// Mark as completed so pending tones don't wait forever
-					updateQuery := fmt.Sprintf(`UPDATE "calls" SET "transcriptionStatus" = 'completed' WHERE "callId" = %d`, call.Id)
-					controller.Database.Sql.Exec(updateQuery)
-					return
-				}
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d has sufficient remaining audio after tone removal (%.1fs of %.1fs total, %.1fs tones)", call.Id, remainingDuration, audioDuration, toneDuration))
-			}
-
-			// Duration check passed, now check transcription reasons
-			localReasons := controller.transcriptionReasonsForCall(call)
-			if len(localReasons) == 0 {
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
-				return
-			}
-
-			// Both duration and alert checks passed, queue transcription
-			controller.queueTranscriptionJobIfNeeded(call, priority, localReasons)
-		}()
-		return // Exit early, goroutine will handle queueing
-	}
-
-	// Reason 2: alerting talkgroup, tone alerts, or keyword alerts
-	if !needsTranscription {
-		reasons = controller.transcriptionReasonsForCall(call)
-		needsTranscription = len(reasons) > 0
-		if !needsTranscription {
-			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
+	// Duration check (and tone-only floor) always runs async so ffprobe never
+	// blocks the ingest path. MinCallDuration is enforced for normal talkgroups;
+	// only AlertingTalkgroup bypasses that floor (not user alert prefs). For
+	// clips with detected tones, the comparison uses remaining audio after tones.
+	go func() {
+		skip, reason, audioDuration, err := controller.transcriptionDurationDecision(call, minDuration)
+		if err != nil {
+			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("ffprobe failed for call %d (will skip transcription): %v", call.Id, err))
+			controller.markTranscriptionFailed(call.Id, reason)
+			return
 		}
-	}
+		if skip {
+			if strings.HasPrefix(reason, "tone_only_remaining") {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d: %s (total %.1fs)", call.Id, reason, audioDuration))
+				// Mark completed so pending-tone attach does not wait forever.
+				updateQuery := fmt.Sprintf(`UPDATE "calls" SET "transcriptionStatus" = 'completed' WHERE "callId" = %d`, call.Id)
+				controller.Database.Sql.Exec(updateQuery)
+				return
+			}
+			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d: %s (total %.1fs)", call.Id, reason, audioDuration))
+			controller.markTranscriptionSkipped(call.Id, reason)
+			return
+		}
 
-	if needsTranscription {
-		controller.queueTranscriptionJobIfNeeded(call, priority, reasons)
-	}
+		localReasons := controller.transcriptionReasonsForCall(call)
+		if len(localReasons) == 0 {
+			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
+			controller.markTranscriptionSkipped(call.Id, "no_alert_tone_keyword_or_autolearn_reason")
+			return
+		}
+		controller.queueTranscriptionJobIfNeeded(call, priority, localReasons)
+	}()
 }
 
 // queueTranscriptionJobIfNeeded is a helper to queue a transcription job
@@ -3232,6 +3300,8 @@ func (controller *Controller) Start() error {
 	log.Printf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond))
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond)))
 
+	controller.markStartupReady(startupStart)
+
 	controller.Users.SetRelayListenerEmailSyncCallbacks(
 		controller.relayListenerEmailAdded,
 		controller.relayListenerEmailRemoved,
@@ -3248,12 +3318,12 @@ func (controller *Controller) Start() error {
 	// Fetch the AES-256-GCM audio encryption key and the client token from the relay
 	// server if encryption is enabled. Both are held in memory only — never in the DB.
 	if controller.Options.AudioEncryptionEnabled {
-		if controller.Options.RelayServerURL == "" || controller.Options.RelayServerAPIKey == "" {
-			controller.Logs.LogEvent(LogLevelWarn, "audio encryption enabled but relay server URL or API key not configured — encryption disabled")
+		if controller.Options.RelayServerAPIKey == "" {
+			controller.Logs.LogEvent(LogLevelWarn, "audio encryption enabled but relay server API key not configured — encryption disabled")
 		} else {
 			go func() {
 				// Fetch the master AES key (via ECDH — raw key never transmitted).
-				key, err := FetchAudioKeyFromRelay(controller.Options.RelayServerURL, controller.Options.RelayServerAPIKey)
+				key, err := FetchAudioKeyFromRelay(getRelayServerURL(), controller.Options.RelayServerAPIKey)
 				if err != nil {
 					controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("audio encryption: failed to fetch key from relay: %v — audio will be sent unencrypted", err))
 					return
@@ -3268,8 +3338,12 @@ func (controller *Controller) Start() error {
 	}
 
 	// Poll relay for full-suspension state (and receive updates via webhook when relay changes it).
-	if controller.Options.RelayServerURL != "" && controller.Options.RelayServerAPIKey != "" {
+	if controller.Options.RelayServerAPIKey != "" {
 		go controller.startRelaySuspensionPoller()
+		// Relay account sign-in refresh + Nominatim subscription status poll.
+		// Safe to start even with no account yet — refresh is a no-op without
+		// a stored refresh token, and the status poll works off the API key alone.
+		go controller.startRelayAccountRefreshLoop()
 	}
 
 	// Initialize transcription queue after options are loaded
@@ -3408,10 +3482,40 @@ func (controller *Controller) Start() error {
 	}
 
 	readyIn := time.Since(startupStart).Round(time.Millisecond)
-	log.Printf("startup: server ready in %s", readyIn)
-	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: server ready in %s", readyIn))
+	log.Printf("startup: all services started in %s", readyIn)
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: all services started in %s", readyIn))
 
 	return nil
+}
+
+func (controller *Controller) markStartupReady(startupStart time.Time) {
+	if !controller.startupReady.CompareAndSwap(false, true) {
+		return
+	}
+	controller.startupReadyAt.Store(time.Now().UnixNano())
+	readyIn := time.Since(startupStart).Round(time.Millisecond)
+	log.Printf("startup: config loaded, accepting connections in %s", readyIn)
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: config loaded, accepting connections in %s", readyIn))
+}
+
+// IsStartupReady reports whether configuration finished loading from the database.
+func (controller *Controller) IsStartupReady() bool {
+	if controller == nil {
+		return false
+	}
+	return controller.startupReady.Load()
+}
+
+// StartupReadyAt is when markStartupReady ran, or zero if not ready yet.
+func (controller *Controller) StartupReadyAt() time.Time {
+	if controller == nil {
+		return time.Time{}
+	}
+	ns := controller.startupReadyAt.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 // rebuildTranscriptParser compiles a new TranscriptParser from the current
@@ -3443,7 +3547,7 @@ func (controller *Controller) RestartTranscriptionQueue() {
 // options save (PATCH /api/admin/options). Keeps all provider credentials in the
 // database; only rebinds the active transcription queue to the selected provider.
 func (controller *Controller) ApplyOptionsRuntimeSideEffects(partial map[string]any) {
-	if OptionsPatchTouchesTranscription(partial) {
+	if OptionsPatchTouchesTranscriptionWithCurrent(partial, controller.Options) {
 		controller.RestartTranscriptionQueue()
 	}
 	if _, ok := partial["transcriptParserConfig"]; ok {
@@ -3474,7 +3578,7 @@ func (controller *Controller) readAllData() error {
 		}
 	}
 
-	wg.Add(16)
+	wg.Add(17)
 	go readFunc(func() error { return controller.Apikeys.Read(controller.Database) }, "apikeys")
 	go readFunc(func() error { return controller.Dirwatches.Read(controller.Database) }, "dirwatches")
 	go readFunc(func() error { return controller.Downstreams.Read(controller.Database) }, "downstreams")
@@ -3493,6 +3597,7 @@ func (controller *Controller) readAllData() error {
 	// Load performance caches
 	go readFunc(func() error { return controller.PreferencesCache.Read(controller.Database) }, "preferencesCache")
 	go readFunc(func() error { return controller.KeywordListsCache.Read(controller.Database) }, "keywordListsCache")
+	go readFunc(func() error { return controller.CallNaturesCache.Read(controller.Database) }, "callNaturesCache")
 	go readFunc(func() error { return controller.IdLookupsCache.Read(controller.Database) }, "idLookupsCache")
 	go readFunc(func() error { return controller.RecentAlertsCache.Read(controller.Database) }, "recentAlertsCache")
 
@@ -3597,16 +3702,7 @@ func (controller *Controller) userCanViewSystemAlerts(user *User) bool {
 	if user.SystemAdmin {
 		return true
 	}
-	if user.HasAnySystemAccess() {
-		return true
-	}
-	if user.UserGroupId > 0 {
-		group := controller.UserGroups.Get(user.UserGroupId)
-		if group != nil && group.HasAnySystemAccess() {
-			return true
-		}
-	}
-	return false
+	return user.HasAnySystemNoAudioAlertScope() || user.HasAnyApiKeyNoAudioAlertScope()
 }
 
 // Helper method to get effective delay for a user (uses group settings if available)
@@ -3651,8 +3747,7 @@ func (controller *Controller) userEffectiveConnectionLimit(user *User) uint {
 }
 
 func (controller *Controller) fetchRadioReferenceAPIKey() {
-	// Hardcoded relay server URL
-	relayServerURL := "https://tlradioserver.thinlineds.com"
+	relayServerURL := getRelayServerURL()
 
 	// Get auth key using the same method as relay server
 	authKey := getRelayServerAuthKey()
@@ -3706,14 +3801,13 @@ func (controller *Controller) fetchRadioReferenceAPIKey() {
 // in memory on the Controller and included in config messages sent to web/mobile
 // clients so they can perform their own ECDH key exchange with the relay server.
 func (controller *Controller) fetchAudioClientToken() {
-	relayServerURL := controller.Options.RelayServerURL
 	apiKey := controller.Options.RelayServerAPIKey
-	if relayServerURL == "" || apiKey == "" {
-		controller.Logs.LogEvent(LogLevelWarn, "audio encryption: relay server URL or API key not set — cannot fetch client token")
+	if apiKey == "" {
+		controller.Logs.LogEvent(LogLevelWarn, "audio encryption: relay server API key not set — cannot fetch client token")
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/audio/client-token", strings.TrimRight(relayServerURL, "/"))
+	url := fmt.Sprintf("%s/api/audio/client-token", getRelayServerURL())
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("audio encryption: failed to build client-token request: %v", err))

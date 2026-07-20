@@ -121,10 +121,18 @@ CHANGELOG.md
 # Keep README.md and docs/ directory
 
 # =============================================================================
-# Platform Specific
+# Platform Specific / unrelated projects (not part of TLR server image)
 # =============================================================================
 ThinlineRadio-Mobile/
 relay-server/
+whisper/
+central-management/
+tlr-time-sync/
+TLR-Tones2Active911-main/
+transcript-collector/
+ThinlineRadio-Website/
+dist/
+node_modules/
 
 # =============================================================================
 # Build Scripts (not needed in container)

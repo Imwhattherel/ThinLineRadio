@@ -1,0 +1,65 @@
+# Run only ThinLine Radio in Docker, using PostgreSQL on the Mac host (Homebrew PG17).
+#
+# Usage (from docker/):
+#   docker compose -f docker-compose.host-db.yml up -d --build
+#   docker compose -f docker-compose.host-db.yml logs -f
+
+version: '3.8'
+
+services:
+  thinline-radio:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        - BUILD_DATE=${BUILD_DATE:-unknown}
+        - VERSION=${VERSION:-7.0.0}
+
+    container_name: thinline-radio
+    restart: unless-stopped
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      DB_TYPE: postgresql
+      DB_HOST: host.docker.internal
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-alert_page}
+      DB_USER: ${DB_USER:-michaelchambers}
+      DB_PASS: ${DB_PASS:?Set DB_PASS in docker/.env}
+      LISTEN: 0.0.0.0:3000
+      SSL_LISTEN: 0.0.0.0:3443
+      TZ: ${TZ:-America/New_York}
+      ENABLE_DEBUG_LOG: ${ENABLE_DEBUG_LOG:-true}
+
+    volumes:
+      - ./config:/app/config:ro
+      - thinline_data:/app/data
+      - thinline_logs:/app/logs
+
+    ports:
+      - "${HTTP_PORT:-3000}:3000"
+      - "${HTTPS_PORT:-3443}:3443"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  thinline_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-./data}/thinline
+
+  thinline_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-./data}/logs

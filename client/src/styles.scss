@@ -289,6 +289,71 @@ $admin-dark-theme: mat.define-dark-theme((
   }
 }
 
+// ── Admin dialog overlay panels ───────────────────────────────────────────────
+// MatDialog renders in <body> outside .admin-dark-theme — mirror the admin
+// dark palette via panelClass: 'admin-dialog-panel'.
+.cdk-overlay-dark-backdrop.admin-dialog-backdrop,
+.admin-dialog-backdrop {
+  background: rgba(0, 0, 0, 0.68) !important;
+}
+
+.admin-dialog-panel {
+  .mat-mdc-dialog-surface,
+  &.mat-mdc-dialog-panel .mat-mdc-dialog-surface {
+    background: #1e1e1e !important;
+    color: #e0e0e0 !important;
+    border: 1px solid #333 !important;
+  }
+
+  .mat-mdc-dialog-title,
+  .mdc-dialog__title {
+    color: #fff !important;
+    padding: 20px 24px 12px !important;
+
+    &::before {
+      display: none !important;
+    }
+  }
+
+  .mat-mdc-dialog-content,
+  .mdc-dialog__content {
+    color: #e0e0e0 !important;
+    padding: 0 24px 20px !important;
+  }
+
+  .mat-mdc-dialog-actions {
+    border-top: 1px solid #333 !important;
+    padding: 12px 16px !important;
+    background: #1a1a1a;
+  }
+
+  .mat-mdc-checkbox label,
+  .mat-mdc-checkbox .mdc-label {
+    color: #e0e0e0 !important;
+  }
+
+  .mat-mdc-checkbox .mdc-checkbox__background {
+    border-color: #666 !important;
+  }
+
+  .mat-mdc-progress-spinner circle {
+    stroke: #e0e0e0 !important;
+  }
+
+  .mat-mdc-button:not([color]) {
+    color: #ccc !important;
+  }
+
+  .mat-mdc-raised-button:not([color]):not(:disabled) {
+    background: #333 !important;
+    color: #fff !important;
+  }
+
+  strong {
+    color: #fff;
+  }
+}
+
 // ── Searchable mat-select: sticky search box inside the panel ────────────────
 .admin-select-panel .select-search-box,
 .mat-mdc-select-panel .select-search-box {
@@ -1038,9 +1103,9 @@ body.tlr-channels-scroll rdio-scanner-select .channels-split {
   align-items: stretch;
 }
 
-/* Systems bar keeps its 4-row scroll cap even in page-scroll mode.
+/* Systems rail keeps natural height in page-scroll mode.
    Only the detail pane below grows with the document. */
-body.tlr-channels-scroll rdio-scanner-select .channels-systems-bar {
+body.tlr-channels-scroll rdio-scanner-select .channels-sidebar {
   height: auto !important;
   min-height: 0 !important;
 }
@@ -1081,6 +1146,35 @@ body {
    bleeds through any gap in the height chain or Material tab viewport. */
 body:has(rdio-scanner) {
 	background: var(--tlr-chassis-stop-1, #0c0e12);
+	overflow-x: auto;
+	overflow-y: hidden;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 100vh;
+	min-height: 100dvh;
+}
+
+html:has(rdio-scanner) {
+	overflow-x: auto;
+	overflow-y: hidden;
+	height: 100%;
+	min-height: 100vh;
+	min-height: 100dvh;
+}
+
+body:has(rdio-scanner) app-root {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+body:has(rdio-scanner) app-root rdio-scanner {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 }
 
 /* Mask admin API key / secret fields without using type="password"

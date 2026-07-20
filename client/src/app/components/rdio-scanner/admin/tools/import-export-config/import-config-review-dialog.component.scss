@@ -1,0 +1,126 @@
+.intro {
+    margin: 0 0 16px;
+    line-height: 1.5;
+    color: #ccc;
+}
+
+.select-all-row {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.section-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 420px;
+    overflow: auto;
+
+    li {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+
+    ::ng-deep .mat-mdc-checkbox-layout,
+    ::ng-deep .mat-checkbox-layout {
+        align-items: flex-start;
+        white-space: normal;
+    }
+
+    ::ng-deep .mat-mdc-checkbox .mdc-checkbox,
+    ::ng-deep .mat-checkbox-inner-container {
+        margin-top: 3px;
+    }
+}
+
+.section-content {
+    display: block;
+    width: 100%;
+}
+
+.section-body {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+}
+
+.section-label {
+    font-weight: 500;
+    color: #e0e0e0;
+}
+
+.section-count {
+    color: #888;
+    white-space: nowrap;
+}
+
+.section-detail,
+.section-description {
+    display: block;
+    margin-left: 0;
+    font-size: 12px;
+    color: #888;
+    line-height: 1.4;
+}
+
+.section-detail {
+    margin-top: 2px;
+}
+
+.section-description {
+    margin-top: 2px;
+}
+
+.empty {
+    margin: 16px 0;
+    color: #888;
+}
+
+.warnings {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 4px;
+    background: rgba(237, 108, 2, 0.12);
+    border: 1px solid rgba(255, 183, 77, 0.25);
+    color: #ffb74d;
+
+    mat-icon {
+        flex-shrink: 0;
+        color: #ffb74d;
+    }
+
+    p {
+        margin: 0 0 6px;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+}
+
+.error {
+    margin: 12px 0 0;
+    color: #ef5350;
+}
+
+mat-dialog-content {
+    min-width: 480px;
+}
+
+mat-dialog-actions button mat-spinner {
+    display: inline-block;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+mat-dialog-actions button {
+    min-width: 120px;
+}

@@ -292,7 +292,7 @@
     <div class="row">
         <p>
             <span class="mat-body">Alerting talkgroup</span><br>
-            <span class="mat-caption">Always transcribe and send transcript alerts on voiced calls. No tone detection or keyword matching required. Users only need alerts enabled for this talkgroup (tone/keyword toggles not required).</span>
+            <span class="mat-caption">Always transcribe and send transcript alerts on voiced calls. No tone detection or keyword matching required. Also bypasses the transcription minimum call duration for this talkgroup only. Users only need alerts enabled for this talkgroup (tone/keyword toggles not required).</span>
         </p>
         <div>
             <mat-slide-toggle color="primary" formControlName="alertingTalkgroup"></mat-slide-toggle>
@@ -417,9 +417,16 @@
             </div>
             <input #twoToneFileInput type="file" accept=".cfg,.txt,.ini" (change)="handleToneImport($event, 'twotone')" hidden>
             <input #csvFileInput type="file" accept=".csv" (change)="handleToneImport($event, 'csv')" hidden>
-            <div *ngFor="let toneSet of getToneSets().controls; let i = index" [formGroupName]="i" class="tone-set-item">
+            <div *ngFor="let toneSet of getToneSets().controls; let i = index" [formGroupName]="i" class="tone-set-item" [class.tone-set-item--collapsed]="!isToneSetExpanded(toneSet)">
                 <div class="tone-set-header">
-                    <mat-form-field floatLabel="auto" style="flex: 1;">
+                    <button type="button" mat-icon-button (click)="toggleToneSet(toneSet)" [attr.aria-label]="isToneSetExpanded(toneSet) ? 'Collapse tone set' : 'Expand tone set'">
+                        <mat-icon>{{ isToneSetExpanded(toneSet) ? 'expand_less' : 'expand_more' }}</mat-icon>
+                    </button>
+                    <span *ngIf="!isToneSetExpanded(toneSet)" class="tone-set-title" (click)="toggleToneSet(toneSet)">
+                        {{ toneSetTitle(toneSet, i) }}
+                        <mat-icon *ngIf="toneSetHasLocation(toneSet)" class="tone-set-loc-icon" matTooltip="Incident map location configured">place</mat-icon>
+                    </span>
+                    <mat-form-field *ngIf="isToneSetExpanded(toneSet)" floatLabel="auto" style="flex: 1;">
                         <input type="text" matInput formControlName="label" placeholder="Label (e.g., Fire Dept)" autocomplete="off">
                     </mat-form-field>
                     <button type="button" mat-icon-button color="warn" (click)="removeToneSet(i)" style="margin-left: 8px;">
@@ -427,7 +434,7 @@
                     </button>
                 </div>
                 
-                <div class="tone-set-content">
+                <div class="tone-set-content" *ngIf="isToneSetExpanded(toneSet)">
                     <div class="tone-spec-section">
                         <strong>A-Tone:</strong>
                         <div class="tone-spec-row">
@@ -508,6 +515,51 @@
                         <span class="tone-field-hint">Ratio &times; 500 = Hz window &mdash; 0.03 = &plusmn;15 Hz, 0.02 = &plusmn;10 Hz (default). Or enter an absolute value &ge; 1 Hz.</span>
                     </div>
 
+                    <div class="tone-spec-section tone-set-location">
+                        <strong>Incident map location:</strong>
+                        <span class="tone-field-hint" style="margin-bottom: 8px;">
+                            When this tone set matches, incident mapping uses this jurisdiction instead of the parent talkgroup.
+                            Use <strong>Assign locations to tone sets</strong> on the system page to bulk geocode, or edit here.
+                        </span>
+                        <div class="tone-spec-row">
+                            <div class="tone-field" style="flex: 2;">
+                                <mat-form-field floatLabel="auto">
+                                    <mat-label>City / township / zip</mat-label>
+                                    <input type="text" matInput formControlName="geoCity" autocomplete="off">
+                                </mat-form-field>
+                            </div>
+                            <div class="tone-field">
+                                <mat-form-field floatLabel="auto">
+                                    <mat-label>Radius (mi)</mat-label>
+                                    <input type="number" matInput formControlName="geoRadiusMiles" min="1" max="40" step="any" autocomplete="off">
+                                </mat-form-field>
+                            </div>
+                        </div>
+                        <div class="tone-spec-row">
+                            <div class="tone-field">
+                                <mat-form-field floatLabel="auto">
+                                    <mat-label>Latitude</mat-label>
+                                    <input type="number" matInput formControlName="geoLat" step="any" autocomplete="off">
+                                </mat-form-field>
+                            </div>
+                            <div class="tone-field">
+                                <mat-form-field floatLabel="auto">
+                                    <mat-label>Longitude</mat-label>
+                                    <input type="number" matInput formControlName="geoLon" step="any" autocomplete="off">
+                                </mat-form-field>
+                            </div>
+                        </div>
+                        <div class="tone-spec-row">
+                            <div class="tone-field" style="flex: 2;">
+                                <mat-form-field floatLabel="auto">
+                                    <mat-label>Location context</mat-label>
+                                    <input type="text" matInput formControlName="locationContext" autocomplete="off">
+                                </mat-form-field>
+                                <span class="tone-field-hint">Optional hint for address extraction (defaults to city above).</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- TonesToActive downstream forwarding (per tone set) -->
                     <div class="tone-set-downstream">
                         <mat-slide-toggle color="primary" formControlName="downstreamEnabled">
@@ -519,12 +571,89 @@
                     </div>
                 </div>
             </div>
-            <button type="button" mat-button (click)="addToneSet()">
+            <button type="button" mat-button (click)="addToneSet(undefined, true)">
                 <mat-icon>add</mat-icon>
                 Add Tone Set
             </button>
         </div>
     </div>
+
+    <div class="row" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+        <p>
+            <span class="mat-body"><strong>Incident Mapping</strong></span><br>
+            <span class="mat-caption">Override system mapping settings for this talkgroup. Saved with the system.</span>
+        </p>
+    </div>
+
+    <ng-container formGroupName="incidentMapping">
+        <div class="row">
+            <p>
+                <span class="mat-body">Inherit system mapping</span><br>
+                <span class="mat-caption">Use the system's geo center &amp; radius. Turn off to give this talkgroup its own city center.</span>
+                <span class="mat-caption" *ngIf="form.get('incidentMapping.inherit')?.value">
+                    While inherit is on, geo/enabled below are hidden — mapping follows the system's Incident Mapping card (including Extract address with Gemini).
+                </span>
+            </p>
+            <mat-slide-toggle color="primary" formControlName="inherit"></mat-slide-toggle>
+        </div>
+
+        <ng-container *ngIf="!form.get('incidentMapping.inherit')?.value">
+            <div class="row">
+                <p>
+                    <span class="mat-body">Enabled</span><br>
+                    <span class="mat-caption">Process incident mapping for this talkgroup using talkgroup-scoped settings.</span>
+                </p>
+                <mat-slide-toggle color="primary" formControlName="enabled"></mat-slide-toggle>
+            </div>
+
+            <ng-container *ngIf="form.get('incidentMapping.enabled')?.value">
+                <div class="row">
+                    <p><span class="mat-body">Geo city</span></p>
+                    <mat-form-field floatLabel="auto">
+                        <input type="text" matInput formControlName="geoCity" autocomplete="off">
+                    </mat-form-field>
+                </div>
+                <div class="row">
+                    <p><span class="mat-body">Center latitude</span></p>
+                    <mat-form-field floatLabel="auto">
+                        <input type="number" step="any" matInput formControlName="geoLat" autocomplete="off">
+                    </mat-form-field>
+                </div>
+                <div class="row">
+                    <p><span class="mat-body">Center longitude</span></p>
+                    <mat-form-field floatLabel="auto">
+                        <input type="number" step="any" matInput formControlName="geoLon" autocomplete="off">
+                    </mat-form-field>
+                </div>
+                <div class="row">
+                    <p><span class="mat-body">Geo radius (miles)</span></p>
+                    <mat-form-field floatLabel="auto">
+                        <input type="number" min="0" step="any" matInput formControlName="geoRadiusMiles" autocomplete="off">
+                    </mat-form-field>
+                </div>
+                <div class="row">
+                    <p><span class="mat-body">Location context</span></p>
+                    <mat-form-field floatLabel="auto">
+                        <input type="text" matInput formControlName="locationContext" autocomplete="off">
+                    </mat-form-field>
+                </div>
+                <div class="row">
+                    <p>
+                        <span class="mat-body">Extract address with Gemini</span><br>
+                        <span class="mat-caption">When transcription uses Gemini Flash-Lite, also extract a short scene address / place name and send that to the geocode gateway instead of the full transcript.</span>
+                    </p>
+                    <mat-slide-toggle color="primary" formControlName="extractAddressWithGemini"></mat-slide-toggle>
+                </div>
+            </ng-container>
+
+            <rdio-scanner-admin-mapping-data
+                *ngIf="form.get('incidentMapping.enabled')?.value && systemId"
+                [systemId]="systemId"
+                [talkgroupId]="form.get('id')?.value || null">
+            </rdio-scanner-admin-mapping-data>
+        </ng-container>
+    </ng-container>
+
     <div class="row bottom">
         <button *ngIf="form.get('id')?.value" type="button" mat-button (click)="blacklist.emit()">
             Blacklist talkgroup

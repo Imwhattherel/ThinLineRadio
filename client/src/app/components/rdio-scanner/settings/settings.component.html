@@ -50,22 +50,76 @@
             <div class="alert-sound-setting">
                 <h4>Alert Notification Sound</h4>
                 <p class="setting-description">
-                    Choose a default sound to play when new alerts arrive.
+                    Choose a default sound to play when new scanner alerts arrive.
                 </p>
-                
-                <div class="sound-selector">
-                    <mat-form-field appearance="outline" class="sound-field">
+
+                <div class="sound-controls">
+                    <mat-form-field appearance="outline" class="sound-field" subscriptSizing="dynamic">
                         <mat-label>Alert Sound</mat-label>
-                        <mat-select 
+                        <mat-select
+                            panelClass="tlr-settings-select-panel"
                             [(ngModel)]="alertSound"
-                            (selectionChange)="onAlertSoundChange(); previewAlertSound(alertSound)">
+                            (selectionChange)="onAlertSoundChange()">
                             <mat-option *ngFor="let sound of availableAlertSounds" [value]="sound.name">
                                 {{ sound.displayName }}
                             </mat-option>
                         </mat-select>
-                        <mat-hint>Sound will play locally in your browser when new alerts arrive</mat-hint>
+                        <mat-hint>Plays in your browser when new scanner alerts arrive</mat-hint>
                     </mat-form-field>
+                    <div class="sound-actions">
+                        <button type="button" mat-stroked-button class="sound-action-btn"
+                                (click)="previewAlertSound(alertSound)">
+                            <mat-icon>volume_up</mat-icon>
+                            Test Sound
+                        </button>
+                    </div>
                 </div>
+            </div>
+
+            <div class="alert-sound-setting weather-alert-setting">
+                <h4>Severe Weather Alert Sound</h4>
+                <p class="setting-description">
+                    Play a sound when new severe or extreme weather warnings appear in the header ticker for your ZIP code.
+                </p>
+
+                <div class="setting-header">
+                    <mat-slide-toggle
+                        [(ngModel)]="weatherAlertSoundEnabled"
+                        (ngModelChange)="onWeatherAlertSoundChange()"
+                        color="primary">
+                        Enable severe weather alert sound
+                    </mat-slide-toggle>
+                </div>
+
+                <div class="sound-controls">
+                    <mat-form-field appearance="outline" class="sound-field" subscriptSizing="dynamic">
+                        <mat-label>Weather Alert Sound</mat-label>
+                        <mat-select
+                            panelClass="tlr-settings-select-panel"
+                            [(ngModel)]="weatherAlertSound"
+                            (selectionChange)="onWeatherAlertSoundChange()">
+                            <mat-option *ngFor="let sound of availableAlertSounds" [value]="sound.name">
+                                {{ sound.displayName }}
+                            </mat-option>
+                        </mat-select>
+                        <mat-hint>Uses the same sounds as scanner alerts</mat-hint>
+                    </mat-form-field>
+                    <div class="sound-actions">
+                        <button type="button" mat-stroked-button class="sound-action-btn"
+                                (click)="previewAlertSound(weatherAlertSound)">
+                            <mat-icon>volume_up</mat-icon>
+                            Test Sound
+                        </button>
+                        <button type="button" mat-stroked-button class="sound-action-btn sound-action-btn--primary"
+                                (click)="testWeatherAlertTicker()">
+                            <mat-icon>campaign</mat-icon>
+                            Test Ticker
+                        </button>
+                    </div>
+                </div>
+                <p class="setting-hint">
+                    Test Ticker scrolls a sample warning in the header for about 25 seconds. Enable the toggle above to also play the selected sound during the test.
+                </p>
             </div>
 
             <!-- Per-channel alert sounds -->

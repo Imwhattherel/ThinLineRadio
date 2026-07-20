@@ -21,17 +21,10 @@
                 <mat-icon>tune</mat-icon>
                 Preferences
             </button>
-            <button *ngIf="showTranscriptsInnerTab" type="button" class="tab-button" [class.active]="activeTab === 'transcripts'" (click)="setTab('transcripts')">
-                <mat-icon>forum</mat-icon>
-                Transcripts
-            </button>
         </div>
         <div class="header-actions">
             <button *ngIf="activeTab === 'alerts'" type="button" class="btn-refresh" (click)="refreshAlertsTab()" [disabled]="alertsTabLoading">
                 {{ alertsTabLoading ? 'Loading...' : 'Refresh Alerts' }}
-            </button>
-            <button *ngIf="activeTab === 'transcripts'" type="button" class="btn-refresh" (click)="loadTranscripts()" [disabled]="loadingTranscripts">
-                {{ loadingTranscripts ? 'Loading...' : 'Refresh Transcripts' }}
             </button>
         </div>
     </div>
@@ -68,17 +61,20 @@
                  [class.keyword]="alert.alertType === 'keyword'"
                  [class.tone-keyword]="alert.alertType === 'tone+keyword'"
                  [class.transcript]="alert.alertType === 'transcript'">
-                <div class="alert-header">
-                    <div class="alert-header-left">
-                        <span class="alert-type-badge">{{ getAlertTypeLabel(alert) }}</span>
-                        <span *ngIf="alert.toneDetected" class="tone-indicator">🔔</span>
+                <div class="alert-header alert-header-embed">
+                    <div class="alert-header-main">
+                        <div class="alert-header-left">
+                            <span class="alert-type-badge">{{ getAlertTypeLabel(alert) }}</span>
+                            <span *ngIf="alert.toneDetected" class="tone-indicator">🔔</span>
+                        </div>
+                        <div class="alert-header-actions">
+                            <mat-icon *ngIf="hasIncidentLocation(alert)" class="incident-map-pin" matTooltip="Incident location available">place</mat-icon>
+                            <button type="button" class="btn-play btn-play--compact" (click)="playCall(alert.callId)">Play</button>
+                        </div>
                     </div>
-                    <div class="alert-header-right">
-                        <span class="alert-timestamp alert-timestamp--stacked">
-                            <span class="alert-timestamp-date">{{ formatAlertDate(alert.createdAt) }}</span>
-                            <span class="alert-timestamp-time">{{ formatAlertTime(alert.createdAt) }}</span>
-                        </span>
-                        <button type="button" class="btn-play btn-play--compact" (click)="playCall(alert.callId)">Play</button>
+                    <div class="alert-timestamp alert-timestamp--embed">
+                        <span class="alert-timestamp-date">{{ formatAlertDate(alert.createdAt) }}</span>
+                        <span class="alert-timestamp-time">{{ formatAlertTime(alert.createdAt) }}</span>
                     </div>
                 </div>
                 <div class="alert-body">
@@ -205,6 +201,7 @@
                                 </span>
                             </div>
                             <div class="alert-header-right">
+                                <mat-icon *ngIf="hasIncidentLocation(alert)" class="incident-map-pin" matTooltip="Incident location available">place</mat-icon>
                                 <span class="alert-timestamp">{{ formatTimestamp(alert.createdAt) }}</span>
                                 <button type="button" class="btn-play btn-play--compact" (click)="playCall(alert.callId)">Play</button>
                             </div>
@@ -273,7 +270,7 @@
         </div>
     </div>
     
-    <div class="transcripts-content" *ngIf="!boardEmbed && (panelMode === 'transcripts' || (panelMode === 'alertsAndPreferences' && activeTab === 'transcripts'))">
+    <div class="transcripts-content" *ngIf="!boardEmbed && panelMode === 'transcripts'">
         <div class="global-training-goal" *ngIf="globalTrainingProgress || globalTrainingLoading">
             <div class="global-training-header">
                 <mat-icon>groups</mat-icon>

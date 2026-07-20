@@ -14,13 +14,10 @@ import (
 	"time"
 )
 
-func normalizeRelayBaseURL(raw string) string {
-	return strings.TrimRight(strings.TrimSpace(raw), "/")
-}
 
 func (controller *Controller) maybeBootstrapRelayListenerEmails() {
-	if controller.Options.RelayServerURL == "" || controller.Options.RelayServerAPIKey == "" {
-		log.Printf("relay listener emails: skipping initial sync (relayServerURL or relayServerAPIKey not configured)")
+	if controller.Options.RelayServerAPIKey == "" {
+		log.Printf("relay listener emails: skipping initial sync (relayServerAPIKey not configured)")
 		return
 	}
 	if controller.Options.RelayListenerEmailsInitialSyncDone {
@@ -47,7 +44,7 @@ func (controller *Controller) postRelayListenerEmailFullReplace() bool {
 		log.Printf("relay listener emails: marshal: %v", err)
 		return false
 	}
-	u := normalizeRelayBaseURL(controller.Options.RelayServerURL) + "/api/scanner-listener-emails"
+	u := getRelayServerURL() + "/api/scanner-listener-emails"
 	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
 		log.Printf("relay listener emails: request: %v", err)
@@ -71,7 +68,7 @@ func (controller *Controller) postRelayListenerEmailFullReplace() bool {
 }
 
 func (controller *Controller) postRelayListenerEmailDelta(add, remove []string) {
-	if controller.Options.RelayServerURL == "" || controller.Options.RelayServerAPIKey == "" {
+	if controller.Options.RelayServerAPIKey == "" {
 		return
 	}
 	add = dedupeNormEmails(add)
@@ -84,7 +81,7 @@ func (controller *Controller) postRelayListenerEmailDelta(add, remove []string) 
 		log.Printf("relay listener emails delta: marshal: %v", err)
 		return
 	}
-	u := normalizeRelayBaseURL(controller.Options.RelayServerURL) + "/api/scanner-listener-emails/delta"
+	u := getRelayServerURL() + "/api/scanner-listener-emails/delta"
 	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
 		log.Printf("relay listener emails delta: request: %v", err)

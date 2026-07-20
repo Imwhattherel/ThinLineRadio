@@ -1,0 +1,90 @@
+.mapping-data {
+    margin-top: 12px;
+}
+
+.mapping-stats {
+    margin-bottom: 12px;
+}
+
+.mapping-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    font-size: 13px;
+    opacity: 0.85;
+}
+
+.mapping-tab {
+    padding: 12px 0;
+}
+
+.mapping-section-title {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.mapping-add-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+
+    &--grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        align-items: start;
+    }
+}
+
+.flex-field {
+    flex: 1;
+    min-width: 220px;
+}
+
+.mapping-table {
+    width: 100%;
+}
+
+.mapping-collapse-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 4px;
+}
+
+.mapping-collapse-title {
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0.9;
+}
+
+.mapping-paginator {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.mapping-paginator-label {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.mapping-empty,
+.mapping-hint {
+    font-size: 13px;
+    opacity: 0.85;
+    margin: 8px 0;
+}
+
+.mapping-hint code {
+    font-size: 12px;
+}

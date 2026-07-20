@@ -25,24 +25,5 @@
         ]
       }
     }
-  ],
-  "dataGroups": [
-    {
-      "name": "websocket",
-      "urls": ["ws://**", "wss://**"],
-      "cacheConfig": {
-        "strategy": "networkOnly",
-        "timeout": "0u"
-      }
-    },
-    {
-      "name": "index-html",
-      "urls": ["/index.html", "/"],
-      "cacheConfig": {
-        "strategy": "freshness",
-        "maxAge": "0s",
-        "timeout": "0s"
-      }
-    }
   ]
 }

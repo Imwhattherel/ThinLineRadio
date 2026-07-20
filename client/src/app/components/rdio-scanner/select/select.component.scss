@@ -30,21 +30,36 @@
 
 // Top Section / toolbar
 .top-section {
-  padding: 14px 0 12px;
+  padding: 10px 0 8px;
   background: transparent;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  .toolbar-primary {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .toolbar-secondary {
+    padding: 0 2px;
+  }
 
   // Search Bar
   .search-bar {
+    flex: 1 1 auto;
+    min-width: 0;
     position: relative;
     display: flex;
     align-items: center;
-    padding: 0 16px;
+    padding: 0 12px;
     background: var(--scaffold-background, #1e1e1e);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    margin-bottom: 12px;
+    border-radius: 10px;
     transition: all 0.2s ease;
 
     &.focused {
@@ -52,9 +67,9 @@
     }
 
     .search-icon {
-      width: 20px;
-      height: 20px;
-      font-size: 20px;
+      width: 18px;
+      height: 18px;
+      font-size: 18px;
       color: rgba(255, 255, 255, 0.6);
       margin-right: 8px;
       flex-shrink: 0;
@@ -65,9 +80,10 @@
       background: transparent;
       border: none;
       color: rgba(255, 255, 255, 0.9);
-      font-size: 14px;
-      padding: 12px 0;
+      font-size: 13px;
+      padding: 9px 0;
       outline: none;
+      min-width: 0;
 
       &::placeholder {
         color: rgba(255, 255, 255, 0.5);
@@ -89,34 +105,34 @@
   }
 
   .channels-nav-segment {
+    flex: 0 0 auto;
     display: flex;
     gap: 0;
-    margin-bottom: 10px;
     padding: 3px;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 10px;
 
     .segment-btn {
-      flex: 1;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 4px;
       padding: 8px 10px;
       border: none;
       border-radius: 8px;
       background: transparent;
       color: rgba(255, 255, 255, 0.65);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
       transition: background 0.15s ease, color 0.15s ease;
 
       .segment-star {
-        width: 16px;
-        height: 16px;
-        font-size: 16px;
+        width: 14px;
+        height: 14px;
+        font-size: 14px;
         line-height: 1;
         color: rgba(255, 234, 0, 0.85);
       }
@@ -138,15 +154,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 2px;
 
     .controls-stats {
       flex: 1;
-      font-size: 13px;
+      font-size: 12px;
       white-space: nowrap;
 
       .stat-enabled {
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 700;
 
         &.all   { color: #00e676; }
@@ -165,8 +180,8 @@
       gap: 6px;
 
       .scan-list-btn {
-        height: 28px;
-        padding: 0 10px;
+        height: 26px;
+        padding: 0 9px;
         font-size: 11px;
       }
     }
@@ -222,108 +237,99 @@
   }
 }
 
-// ── Channels split — horizontal systems bar on top, full-width detail below
-//
-// The old left-hand sidebar (`.channels-sidebar`) was replaced with a
-// horizontal `.channels-systems-bar` that wraps to multiple rows when there
-// are many systems. The active system reads as a highlighted pill. With the
-// sidebar gone, `.channels-detail` claims the full pane width, which lets
-// the talkgroup grid pack 4 cards per row at desktop widths.
+// ── Channels split — vertical systems rail + detail pane side by side
 .channels-split {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 6px;
 }
 
-// 5-column grid — wide enough for icon + label + toggle without overlap
-// (overflow is clipped inside each chip so content never bleeds into the
-// next cell). Capped at 4 visible rows; additional systems scroll inside
-// this bar so the tag/talkgroup detail stays higher on the page.
-.channels-systems-bar {
-  --system-chip-row-h: 40px;
-  --system-bar-gap: 6px;
-  --system-bar-pad-y: 16px; // 8px padding top + bottom
-
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  align-items: stretch;
-  gap: var(--system-bar-gap);
-  padding: 8px;
+.channels-sidebar {
+  flex: 0 0 336px;
+  width: 336px;
+  min-width: 280px;
+  max-width: 400px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  flex-shrink: 0;
-  max-height: calc(
-    var(--system-bar-pad-y) +
-    4 * var(--system-chip-row-h) +
-    3 * var(--system-bar-gap)
-  );
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-
-  @media (max-width: 1100px) {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  @media (max-width: 900px) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  @media (max-width: 680px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @media (max-width: 420px) {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  overflow: hidden;
 
   &.is-empty {
-    display: block;
-    padding: 14px 16px;
+    .sidebar-list {
+      display: none;
+    }
   }
 
-  .systems-bar-empty {
+  .sidebar-head {
+    flex-shrink: 0;
+    padding: 10px 12px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .sidebar-empty {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 8px;
-    padding: 4px 6px;
-    font-size: 12px;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.35;
     color: rgba(255, 255, 255, 0.55);
 
     mat-icon {
       width: 18px;
       height: 18px;
       font-size: 18px;
-      line-height: 1;
       color: rgba(255, 234, 0, 0.45);
     }
   }
 
-  .system-chip {
+  .sidebar-list {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 6px;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .sidebar-system-row {
     box-sizing: border-box;
-    min-height: var(--system-chip-row-h, 40px);
-    // Constrain to the grid cell — without this, flex children (label +
-    // toggle button) paint outside the cell and overlap the next chip.
     width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 8px 6px 6px;
+    gap: 8px;
+    padding: 8px;
+    margin-bottom: 4px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.03);
     color: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    border-left-width: 3px;
+
+    &.status-all { border-left-color: #00e676; }
+    &.status-some { border-left-color: #ff9100; }
+    &.status-none { border-left-color: rgba(255, 255, 255, 0.2); }
 
     &:hover {
       background: rgba(255, 255, 255, 0.08);
@@ -333,13 +339,13 @@
     &.active {
       background: rgba(0, 230, 118, 0.12);
       border-color: rgba(0, 230, 118, 0.5);
-      box-shadow: inset 0 0 0 1px rgba(0, 230, 118, 0.2);
+      box-shadow: inset 0 0 0 1px rgba(0, 230, 118, 0.15);
 
-      .system-chip-icon { background: rgba(0, 230, 118, 0.22); }
-      .system-chip-label { color: #fff; }
+      .sidebar-row-icon { background: rgba(0, 230, 118, 0.22); }
+      .sidebar-row-label { color: #fff; }
     }
 
-    .system-chip-icon {
+    .sidebar-row-icon {
       flex-shrink: 0;
       width: 24px;
       height: 24px;
@@ -358,18 +364,15 @@
       }
     }
 
-    .system-chip-body {
+    .sidebar-row-body {
       flex: 1 1 0;
+      min-width: 0;
       display: flex;
       flex-direction: column;
-      align-items: flex-start;
-      min-width: 0;
-      overflow: hidden;
-      gap: 0;
+      gap: 1px;
     }
 
-    .system-chip-label {
-      width: 100%;
+    .sidebar-row-label {
       font-size: 12px;
       font-weight: 600;
       color: rgba(255, 255, 255, 0.92);
@@ -378,13 +381,9 @@
       text-overflow: ellipsis;
     }
 
-    .system-chip-meta {
-      width: 100%;
+    .sidebar-row-meta {
       font-size: 10px;
       color: rgba(255, 255, 255, 0.5);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
 
       .enabled-count {
         font-weight: 700;
@@ -392,20 +391,77 @@
       }
     }
 
-    .system-chip-badge {
-      flex-shrink: 0;
-      display: inline-flex;
-      align-items: center;
-    }
-
-    .system-chip-star {
+    .sidebar-row-star {
       flex-shrink: 0;
       width: 14px;
       height: 14px;
       font-size: 14px;
       line-height: 1;
       color: #ffea00;
-      filter: drop-shadow(0 0 2px rgba(255, 234, 0, 0.35));
+    }
+  }
+}
+
+// Search results — full-width flat list
+.channels-search-results {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+
+  .search-results-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .search-results-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .search-results-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 8px 10px 12px;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .search-hit-row {
+    .search-hit-context {
+      display: inline-block;
+      margin-top: 2px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      cursor: pointer;
+      text-align: left;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+
+      &:hover {
+        color: #00e676;
+      }
     }
   }
 }
@@ -430,6 +486,14 @@
     overflow-y: auto;
     padding: 10px 12px 14px;
     min-height: 0;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 
   .channels-detail-empty {
@@ -790,7 +854,7 @@
 //
 // Fixed 4 columns on desktop so each card is wide enough for the label +
 // description without ellipsis clipping ("Forestry Fire…"). Narrower viewports
-// step down to 3 → 2 → 1 column. Applies to both console and classic views
+// step down to 3 → 2 → 1 column in the channels grid.
 // (both render `<rdio-scanner-select>`).
 .talkgroup-list {
   display: grid;
@@ -1465,7 +1529,8 @@
   }
 
   .channels-sidebar,
-  .channels-detail {
+  .channels-detail,
+  .channels-search-results {
     background: var(--tlr-lcd-gradient);
     border: 1px solid var(--tlr-bezel-border);
     border-radius: var(--tlr-bezel-radius);

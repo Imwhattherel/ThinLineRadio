@@ -1,35 +1,37 @@
 <div class="select-container channels-board">
   <div class="top-section channels-toolbar">
-    <div class="search-bar" [class.focused]="isSearchFocused">
-      <mat-icon class="search-icon">search</mat-icon>
-      <input
-        type="text"
-        placeholder="Search talkgroups, systems, or IDs..."
-        [(ngModel)]="searchQuery"
-        (ngModelChange)="onSearchChange()"
-        (focus)="isSearchFocused = true"
-        (blur)="isSearchFocused = false"
-        class="search-input">
-      <button *ngIf="searchQuery" mat-icon-button class="clear-button" (click)="clearSearch()">
-        <mat-icon>clear</mat-icon>
-      </button>
+    <div class="toolbar-primary">
+      <div class="search-bar" [class.focused]="isSearchFocused">
+        <mat-icon class="search-icon">search</mat-icon>
+        <input
+          type="text"
+          placeholder="Search talkgroups, systems, or IDs..."
+          [(ngModel)]="searchQuery"
+          (ngModelChange)="onSearchChange()"
+          (focus)="isSearchFocused = true"
+          (blur)="isSearchFocused = false"
+          class="search-input">
+        <button *ngIf="searchQuery" mat-icon-button class="clear-button" (click)="clearSearch()">
+          <mat-icon>clear</mat-icon>
+        </button>
+      </div>
+
+      <div class="channels-nav-segment" role="tablist">
+        <button type="button" role="tab" class="segment-btn" [class.active]="navMode === 'all'" (click)="setNavMode('all')">
+          Channels
+        </button>
+        <button type="button" role="tab" class="segment-btn" [class.active]="navMode === 'favorites'" (click)="setNavMode('favorites')">
+          <mat-icon class="segment-star">star</mat-icon>
+          Favorites
+        </button>
+        <button type="button" role="tab" class="segment-btn" [class.active]="navMode === 'scanLists'" (click)="setNavMode('scanLists')">
+          <mat-icon class="segment-icon">playlist_play</mat-icon>
+          Scan Lists
+        </button>
+      </div>
     </div>
 
-    <div class="channels-nav-segment" role="tablist">
-      <button type="button" role="tab" class="segment-btn" [class.active]="navMode === 'all'" (click)="setNavMode('all')">
-        Channels
-      </button>
-      <button type="button" role="tab" class="segment-btn" [class.active]="navMode === 'favorites'" (click)="setNavMode('favorites')">
-        <mat-icon class="segment-star">star</mat-icon>
-        Favorites
-      </button>
-      <button type="button" role="tab" class="segment-btn" [class.active]="navMode === 'scanLists'" (click)="setNavMode('scanLists')">
-        <mat-icon class="segment-icon">playlist_play</mat-icon>
-        Scan Lists
-      </button>
-    </div>
-
-    <div class="controls-row">
+    <div class="toolbar-secondary controls-row">
       <span class="controls-stats">
         <span class="stat-enabled"
               [class.all]="isAllEnabled()"
@@ -186,57 +188,81 @@
     <p>No talkgroups are available</p>
   </div>
 
-  <div *ngIf="navMode !== 'scanLists' && systems && systems.length > 0" class="channels-split">
-    <!--
-      Systems bar — horizontal row of chips that replaces the old left-hand
-      sidebar. Chips wrap to multiple rows when there are many systems and
-      the active system reads as a highlighted pill. This frees the entire
-      detail-pane width for the talkgroup grid (lets us pack 4 cards per
-      row at typical desktop widths instead of 3).
-    -->
-    <nav class="channels-systems-bar"
-         [class.is-empty]="navMode === 'favorites' && getSystemsForSidebar().length === 0">
-      <div
-        *ngIf="navMode === 'favorites' && getSystemsForSidebar().length === 0"
-        class="systems-bar-empty">
-        <mat-icon>star_border</mat-icon>
-        <span>No favorite systems yet — star a system, tag, or talkgroup to list it here</span>
-      </div>
-      <div
-        *ngFor="let system of getSystemsForSidebar()"
-        class="system-chip"
-        role="button"
-        tabindex="0"
-        [class.active]="detailSystemId === system.id"
-        [title]="system.label"
-        (click)="selectDetailSystem(system.id)"
-        (keydown.enter)="selectDetailSystem(system.id)"
-        (keydown.space)="$event.preventDefault(); selectDetailSystem(system.id)">
-        <span class="system-chip-icon">
-          <mat-icon>radio</mat-icon>
-        </span>
-        <span class="system-chip-body">
-          <span class="system-chip-label">{{ system.label }}</span>
-          <span class="system-chip-meta">
-            <span class="enabled-count">{{ getEnabledCountInSystem(system) }}</span>
-            <span class="total-count">/ {{ getSystemViewTotalCount(system) }}</span>
-          </span>
-        </span>
-        <span class="system-chip-badge">
+  <!-- Search results — flat list across all systems -->
+  <div *ngIf="navMode !== 'scanLists' && systems && systems.length > 0 && isSearchActive()"
+       class="channels-search-results">
+    <div class="search-results-header">
+      <span class="search-results-count">{{ getSearchResults().length }} match{{ getSearchResults().length === 1 ? '' : 'es' }}</span>
+      <button type="button" class="scan-list-btn" (click)="clearSearch()">Clear search</button>
+    </div>
+    <div *ngIf="getSearchResults().length === 0" class="channels-detail-empty">
+      <mat-icon>search_off</mat-icon>
+      <span>No channels match your search</span>
+    </div>
+    <div *ngIf="getSearchResults().length > 0" class="search-results-body talkgroup-list">
+      <div *ngFor="let hit of getSearchResults(); trackBy: trackBySearchResult"
+           class="talkgroup-row search-hit-row"
+           [class.enabled]="isTalkgroupEnabled(hit.system.id, hit.talkgroup.id)"
+           (click)="toggleTalkgroup(hit.system.id, hit.talkgroup.id, $event)">
+        <mat-icon class="row-radio-icon">
+          {{ isTalkgroupEnabled(hit.system.id, hit.talkgroup.id) ? 'radio_button_checked' : 'radio_button_unchecked' }}
+        </mat-icon>
+        <div class="row-text">
+          <span class="row-label">{{ hit.talkgroup.label }}</span>
+          <span *ngIf="hit.talkgroup.name" class="row-name">{{ hit.talkgroup.name }}</span>
           <button type="button"
-                  class="toggle-badge mini"
-                  [class.all]="isAllEnabledInSystem(system)"
-                  [class.some]="isSomeEnabledInSystem(system)"
-                  [title]="isAllEnabledInSystem(system) ? 'All enabled — click to disable' : isSomeEnabledInSystem(system) ? 'Some enabled — click to toggle' : 'None enabled — click to enable all'"
-                  (click)="toggleSystemTalkgroups(system, $event)">
-            {{ isAllEnabledInSystem(system) ? 'All' : isSomeEnabledInSystem(system) ? 'Some' : 'None' }}
+                  class="search-hit-context"
+                  [title]="'Browse ' + hit.system.label"
+                  (click)="openSystemFromSearch(hit.system.id, $event)">
+            {{ hit.system.label }} · {{ hit.tag }}
           </button>
-        </span>
-        <mat-icon
-          *ngIf="isSystemFavorite(system.id) || getFavoriteTalkgroupsCount(system) > 0"
-          class="system-chip-star">star</mat-icon>
+        </div>
+        <span class="row-id">{{ hit.talkgroup.id }}</span>
+        <button type="button"
+                class="favorite-toggle chip-favorite"
+                [class.is-favorited]="isFavorite(hit.system.id, hit.talkgroup.id)"
+                [attr.aria-label]="(isFavorite(hit.system.id, hit.talkgroup.id) ? 'Unfavorite ' : 'Favorite ') + hit.talkgroup.label"
+                [title]="isFavorite(hit.system.id, hit.talkgroup.id) ? 'Unfavorite' : 'Favorite'"
+                (click)="toggleFavoriteTalkgroup(hit.system.id, hit.talkgroup.id, $event)">
+          <mat-icon>{{ isFavorite(hit.system.id, hit.talkgroup.id) ? 'star' : 'star_border' }}</mat-icon>
+        </button>
       </div>
-    </nav>
+    </div>
+  </div>
+
+  <div *ngIf="navMode !== 'scanLists' && systems && systems.length > 0 && !isSearchActive()" class="channels-split">
+    <aside class="channels-sidebar"
+           [class.is-empty]="navMode === 'favorites' && getSystemsForBrowseRail().length === 0">
+      <div class="sidebar-head">Systems</div>
+      <div *ngIf="navMode === 'favorites' && getSystemsForBrowseRail().length === 0" class="sidebar-empty">
+        <mat-icon>star_border</mat-icon>
+        <span>Star a system, tag, or talkgroup to list it here</span>
+      </div>
+      <nav class="sidebar-list">
+        <button type="button"
+                *ngFor="let system of getSystemsForBrowseRail()"
+                class="sidebar-system-row"
+                [class.active]="detailSystemId === system.id"
+                [class.status-all]="isAllEnabledInSystem(system)"
+                [class.status-some]="isSomeEnabledInSystem(system)"
+                [class.status-none]="!isSomeEnabledInSystem(system) && !isAllEnabledInSystem(system)"
+                [title]="system.label"
+                (click)="selectDetailSystem(system.id)">
+          <span class="sidebar-row-icon">
+            <mat-icon>radio</mat-icon>
+          </span>
+          <span class="sidebar-row-body">
+            <span class="sidebar-row-label">{{ system.label }}</span>
+            <span class="sidebar-row-meta">
+              <span class="enabled-count">{{ getEnabledCountInSystem(system) }}</span>
+              <span class="total-count">/ {{ getSystemViewTotalCount(system) }}</span>
+            </span>
+          </span>
+          <mat-icon *ngIf="isSystemFavorite(system.id) || getFavoriteTalkgroupsCount(system) > 0"
+                    class="sidebar-row-star">star</mat-icon>
+        </button>
+      </nav>
+    </aside>
 
     <main class="channels-detail">
       <ng-container *ngIf="getDetailSystem() as ds">
@@ -251,9 +277,6 @@
               <span class="total-count">/ {{ getSystemViewTotalCount(ds) }} in view</span>
             </div>
           </div>
-          <div class="system-status">
-            <mat-icon [class]="getSystemStatusClass(ds)">{{ getSystemStatusIcon(ds) }}</mat-icon>
-          </div>
           <div class="system-toggle">
             <button type="button"
                     class="toggle-badge"
@@ -265,8 +288,6 @@
             </button>
           </div>
           <div class="system-actions">
-            <button class="mini-button" (click)="setSystemTalkgroupsStatus(ds, true, $event)">Enable</button>
-            <button class="mini-button" (click)="setSystemTalkgroupsStatus(ds, false, $event)">Disable</button>
             <button type="button"
                     class="favorite-toggle"
                     [class.is-favorited]="isSystemFavorite(ds.id)"
@@ -345,7 +366,7 @@
         </div>
 
         <div *ngIf="getTalkgroupsInSystemView(ds).length === 0" class="channels-detail-empty empty-message">
-          No talkgroups match your search
+          No talkgroups in this view
         </div>
       </ng-container>
 

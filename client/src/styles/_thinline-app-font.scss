@@ -96,7 +96,7 @@ $admin-font-stack: Roboto, "Helvetica Neue", sans-serif;
     }
 }
 
-/* Entire scanner shell (auth, console, classic, sidenavs, settings). */
+/* Entire scanner shell (auth, console, sidenavs, settings). */
 .scanner-shell {
     @include tlr-app-font-cascade;
 }

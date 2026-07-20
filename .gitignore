@@ -17,6 +17,7 @@ server/models/*.bin
 
 # Config files (use templates instead)
 /config-sync/
+server/.geocodify-api-key
 rdio-scanner.json
 rdio-scanner(2).json
 server/ThinlineRadio/
@@ -52,6 +53,11 @@ run-server.sh
 
 # Docker
 .env
+scripts/nextcloud-migrate/
+scripts/nextcloud-migrate-to-vps/
+.nextcloud-migrate-staging/
+.nextcloud-vps-migrate-staging/
+TLR-Tones2Active911-main/
 docker/data/
 docker/logs/
 docker/config/*.pem
@@ -64,6 +70,7 @@ docker/config/*.ini
 
 # Separate repositories (Git managed independently)
 relay-server/
+nominatim-gateway/
 transcript-collector/
 ThinlineRadio-Mobile/
 ThinlineRadio-Website/

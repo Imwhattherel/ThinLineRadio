@@ -1733,12 +1733,11 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						// (or it was just enabled), fetch the key + client token from
 						// the relay server without requiring a server restart.
 						if admin.Controller.Options.AudioEncryptionEnabled &&
-							admin.Controller.Options.RelayServerURL != "" &&
 							admin.Controller.Options.RelayServerAPIKey != "" &&
 							len(admin.Controller.AudioKey) == 0 {
 							go func() {
 								key, fetchErr := FetchAudioKeyFromRelay(
-									admin.Controller.Options.RelayServerURL,
+									getRelayServerURL(),
 									admin.Controller.Options.RelayServerAPIKey,
 								)
 								if fetchErr != nil {
@@ -2149,6 +2148,8 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						existingUser.SystemAdmin = getBoolFromMap(userMap, "systemAdmin", false)
 						existingUser.PushSystemNoAudioAlerts = getBoolFromMap(userMap, "pushSystemNoAudioAlerts", false)
 						existingUser.PushApiKeyNoAudioAlerts = getBoolFromMap(userMap, "pushApiKeyNoAudioAlerts", false)
+						existingUser.SystemNoAudioAlertSystems = getStringFromMap(userMap, "systemNoAudioAlertSystems")
+						existingUser.ApiKeyNoAudioAlertApiKeys = getStringFromMap(userMap, "apiKeyNoAudioAlertApiKeys")
 						existingUser.ForcePasswordReset = getBoolFromMap(userMap, "forcePasswordReset", false)
 						existingUser.PinExpiresAt = getUint64FromMap(userMap, "pinExpiresAt")
 						existingUser.ConnectionLimit = uint(getFloat64FromMap(userMap, "connectionLimit"))
@@ -2197,6 +2198,8 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 							SystemAdmin:             getBoolFromMap(userMap, "systemAdmin", false),
 							PushSystemNoAudioAlerts: getBoolFromMap(userMap, "pushSystemNoAudioAlerts", false),
 							PushApiKeyNoAudioAlerts: getBoolFromMap(userMap, "pushApiKeyNoAudioAlerts", false),
+							SystemNoAudioAlertSystems: getStringFromMap(userMap, "systemNoAudioAlertSystems"),
+							ApiKeyNoAudioAlertApiKeys: getStringFromMap(userMap, "apiKeyNoAudioAlertApiKeys"),
 							ForcePasswordReset:      getBoolFromMap(userMap, "forcePasswordReset", false),
 							Pin:                  getStringFromMap(userMap, "pin"),
 							PinExpiresAt:         getUint64FromMap(userMap, "pinExpiresAt"),
@@ -2435,8 +2438,8 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						}
 
 						importedUserId := uint64(getFloat64FromMap(tokenMap, "userId"))
-						token := getStringFromMap(tokenMap, "token")
-						if importedUserId == 0 || token == "" {
+						token, fcmToken, pushType := normalizeImportedDeviceTokenFields(tokenMap)
+						if importedUserId == 0 || (token == "" && fcmToken == "") {
 							continue
 						}
 
@@ -2450,6 +2453,9 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 						platform := getStringFromMap(tokenMap, "platform")
 						sound := getStringFromMap(tokenMap, "sound")
+						if sound == "" {
+							sound = "startup.wav"
+						}
 						createdAt := int64(getFloat64FromMap(tokenMap, "createdAt"))
 						lastUsed := int64(getFloat64FromMap(tokenMap, "lastUsed"))
 						if createdAt == 0 {
@@ -2459,34 +2465,23 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 							lastUsed = createdAt
 						}
 
-						if admin.Controller.Database.Config.DbType == DbTypePostgresql {
-							query := `INSERT INTO "deviceTokens" ("userId", "token", "platform", "sound", "createdAt", "lastUsed") VALUES ($1, $2, $3, $4, $5, $6)`
-							if _, err := admin.Controller.Database.Sql.Exec(query, actualUserId, token, platform, sound, createdAt, lastUsed); err != nil {
-								logError(fmt.Errorf("failed to import device token for userId=%d (mapped from %d): %v", actualUserId, importedUserId, err))
-							}
-						} else {
-							query := `INSERT INTO "deviceTokens" ("userId", "token", "platform", "sound", "createdAt", "lastUsed") VALUES (?, ?, ?, ?, ?, ?)`
-							if _, err := admin.Controller.Database.Sql.Exec(query, actualUserId, token, platform, sound, createdAt, lastUsed); err != nil {
-								logError(fmt.Errorf("failed to import device token for userId=%d (mapped from %d): %v", actualUserId, importedUserId, err))
-							}
+						var fcmTokenArg, pushTypeArg *string
+						if fcmToken != "" {
+							fcmTokenArg = &fcmToken
+						}
+						if pushType != "" {
+							pushTypeArg = &pushType
+						}
+
+						query := `INSERT INTO "deviceTokens" ("userId", "token", "fcmToken", "pushType", "platform", "sound", "createdAt", "lastUsed") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+						if _, err := admin.Controller.Database.Sql.Exec(query, actualUserId, token, fcmTokenArg, pushTypeArg, platform, sound, createdAt, lastUsed); err != nil {
+							logError(fmt.Errorf("failed to import device token for userId=%d (mapped from %d): %v", actualUserId, importedUserId, err))
 						}
 					}
 
-					// Reload device tokens into memory
-					admin.Controller.DeviceTokens.mutex.Lock()
-					admin.Controller.DeviceTokens.tokens = make(map[uint64]*DeviceToken)
-					query := `SELECT "deviceTokenId", "userId", "token", "platform", "sound", "createdAt", "lastUsed" FROM "deviceTokens"`
-					rows, err := admin.Controller.Database.Sql.Query(query)
-					if err == nil {
-						defer rows.Close()
-						for rows.Next() {
-							var dt DeviceToken
-							if err := rows.Scan(&dt.Id, &dt.UserId, &dt.Token, &dt.Platform, &dt.Sound, &dt.CreatedAt, &dt.LastUsed); err == nil {
-								admin.Controller.DeviceTokens.tokens[dt.Id] = &dt
-							}
-						}
+					if err := admin.Controller.DeviceTokens.Load(admin.Controller.Database); err != nil {
+						logError(fmt.Errorf("failed to reload device tokens after import: %v", err))
 					}
-					admin.Controller.DeviceTokens.mutex.Unlock()
 				}
 			} // End isFullImport check for userAlertPreferences and deviceTokens
 
@@ -2497,7 +2492,13 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			// Sync config to file if enabled
 			admin.Controller.SyncConfigToFile()
 
-			admin.SendConfig(w)
+			extras := map[string]any{}
+			if isFullImport {
+				summary := admin.buildConfigImportSummary(m)
+				extras["importSummary"] = summary
+				extras["importSummaryMessage"] = formatImportSummaryMessage(summary)
+			}
+			admin.writeConfigResponse(w, extras)
 
 			admin.Controller.Logs.LogEvent(LogLevelWarn, "configuration changed")
 
@@ -3201,6 +3202,8 @@ func (admin *Admin) GetConfig() map[string]any {
 			"systemAdmin":          user.SystemAdmin,
 			"pushSystemNoAudioAlerts": user.PushSystemNoAudioAlerts,
 			"pushApiKeyNoAudioAlerts": user.PushApiKeyNoAudioAlerts,
+			"systemNoAudioAlertSystems": user.SystemNoAudioAlertSystems,
+			"apiKeyNoAudioAlertApiKeys": user.ApiKeyNoAudioAlertApiKeys,
 			"forcePasswordReset":   user.ForcePasswordReset,
 			"stripeCustomerId":     user.StripeCustomerId,
 			"stripeSubscriptionId": user.StripeSubscriptionId,
@@ -3243,7 +3246,9 @@ func (admin *Admin) GetConfig() map[string]any {
 		deviceTokenList = append(deviceTokenList, map[string]any{
 			"id":        token.Id,
 			"userId":    token.UserId,
-			"token":     token.Token, // Legacy field (kept for reference)
+			"token":     token.Token,
+			"fcmToken":  token.FCMToken,
+			"pushType":  token.PushType,
 			"platform":  token.Platform,
 			"sound":     token.Sound,
 			"createdAt": token.CreatedAt,
@@ -3882,25 +3887,7 @@ func (admin *Admin) PasswordHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (admin *Admin) SendConfig(w http.ResponseWriter) {
-	var m map[string]any
-	_, docker := os.LookupEnv("DOCKER")
-	if docker {
-		m = map[string]any{
-			"config":             admin.GetConfig(),
-			"docker":             docker,
-			"passwordNeedChange": admin.Controller.Options.adminPasswordNeedChange,
-		}
-	} else {
-		m = map[string]any{
-			"config":             admin.GetConfig(),
-			"passwordNeedChange": admin.Controller.Options.adminPasswordNeedChange,
-		}
-	}
-	if b, err := json.Marshal(m); err == nil {
-		w.Write(b)
-	} else {
-		w.WriteHeader(http.StatusExpectationFailed)
-	}
+	admin.writeConfigResponse(w, nil)
 }
 
 func (admin *Admin) Start() error {
@@ -6204,22 +6191,23 @@ func (admin *Admin) UsersListHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Get device tokens (FCM) for this user
+		// Get push device tokens for this user (FCM, VoIP, and legacy token records).
 		deviceTokens := admin.Controller.DeviceTokens.GetByUser(user.Id)
 		var fcmTokens []map[string]interface{}
 		for _, dt := range deviceTokens {
-			// Only include tokens that have FCM tokens
-			if dt.FCMToken != "" {
-				fcmTokens = append(fcmTokens, map[string]interface{}{
-					"id":        dt.Id,
-					"fcmToken":  dt.FCMToken,
-					"pushType":  dt.PushType,
-					"platform":  dt.Platform,
-					"sound":     dt.Sound,
-					"createdAt": time.Unix(dt.CreatedAt, 0).Format("2006-01-02 15:04:05 MST"),
-					"lastUsed":  time.Unix(dt.LastUsed, 0).Format("2006-01-02 15:04:05 MST"),
-				})
+			displayToken, pushType, ok := deviceTokenDisplayFields(dt)
+			if !ok {
+				continue
 			}
+			fcmTokens = append(fcmTokens, map[string]interface{}{
+				"id":        dt.Id,
+				"fcmToken":  displayToken,
+				"pushType":  pushType,
+				"platform":  dt.Platform,
+				"sound":     dt.Sound,
+				"createdAt": time.Unix(dt.CreatedAt, 0).Format("2006-01-02 15:04:05 MST"),
+				"lastUsed":  time.Unix(dt.LastUsed, 0).Format("2006-01-02 15:04:05 MST"),
+			})
 		}
 
 		userList = append(userList, map[string]interface{}{
@@ -6245,6 +6233,8 @@ func (admin *Admin) UsersListHandler(w http.ResponseWriter, r *http.Request) {
 			"systemAdmin":              user.SystemAdmin,
 			"pushSystemNoAudioAlerts": user.PushSystemNoAudioAlerts,
 			"pushApiKeyNoAudioAlerts": user.PushApiKeyNoAudioAlerts,
+			"systemNoAudioAlertSystems": user.SystemNoAudioAlertSystems,
+			"apiKeyNoAudioAlertApiKeys": user.ApiKeyNoAudioAlertApiKeys,
 			"forcePasswordReset":       user.ForcePasswordReset,
 			"stripeCustomerId":         user.StripeCustomerId,
 			"stripeSubscriptionId":     user.StripeSubscriptionId,
@@ -6463,9 +6453,11 @@ func (admin *Admin) UserUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		UserGroupId          *uint64 `json:"userGroupId"`
 		IsGroupAdmin         *bool   `json:"isGroupAdmin"`
 		SystemAdmin             *bool   `json:"systemAdmin"`
-		PushSystemNoAudioAlerts *bool   `json:"pushSystemNoAudioAlerts"`
-		PushApiKeyNoAudioAlerts *bool   `json:"pushApiKeyNoAudioAlerts"`
-		ForcePasswordReset      *bool   `json:"forcePasswordReset"`
+		PushSystemNoAudioAlerts   *bool   `json:"pushSystemNoAudioAlerts"`
+		PushApiKeyNoAudioAlerts   *bool   `json:"pushApiKeyNoAudioAlerts"`
+		SystemNoAudioAlertSystems *string `json:"systemNoAudioAlertSystems"`
+		ApiKeyNoAudioAlertApiKeys *string `json:"apiKeyNoAudioAlertApiKeys"`
+		ForcePasswordReset        *bool   `json:"forcePasswordReset"`
 		StripeCustomerId     string  `json:"stripeCustomerId"`
 		StripeSubscriptionId string  `json:"stripeSubscriptionId"`
 		SubscriptionStatus   string  `json:"subscriptionStatus"`
@@ -6564,6 +6556,12 @@ func (admin *Admin) UserUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.PushApiKeyNoAudioAlerts != nil {
 		user.PushApiKeyNoAudioAlerts = *request.PushApiKeyNoAudioAlerts
+	}
+	if request.SystemNoAudioAlertSystems != nil {
+		user.SystemNoAudioAlertSystems = strings.TrimSpace(*request.SystemNoAudioAlertSystems)
+	}
+	if request.ApiKeyNoAudioAlertApiKeys != nil {
+		user.ApiKeyNoAudioAlertApiKeys = strings.TrimSpace(*request.ApiKeyNoAudioAlertApiKeys)
 	}
 	if request.ForcePasswordReset != nil {
 		user.ForcePasswordReset = *request.ForcePasswordReset

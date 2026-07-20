@@ -17,42 +17,69 @@
  * ****************************************************************************
  */
 
-import { ApplicationRef, Injectable } from '@angular/core';
+import { Injectable, OnDestroy } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { SwUpdate, VersionEvent } from '@angular/service-worker';
+import { interval, Subscription } from 'rxjs';
 import { AppUpdateComponent } from './update.component';
-import { concat, interval } from 'rxjs';
-import { first } from 'rxjs/operators';
 
 @Injectable()
-export class AppUpdateService {
+export class AppUpdateService implements OnDestroy {
+  private readonly subs = new Subscription();
+  private prompting = false;
+  private readonly onVisibility = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.checkForUpdate();
+    }
+  };
+
   constructor(
     private matDialog: MatDialog,
-    private ngAppRef: ApplicationRef,
     private ngSwUpdate: SwUpdate,
   ) {
     if (!ngSwUpdate.isEnabled) {
       return;
     }
 
-    concat(
-      this.ngAppRef.isStable.pipe(first((stable) => stable === true)),
-      interval(5 * 60 * 1000),
-    ).subscribe(() => this.ngSwUpdate.checkForUpdate());
-
     this.ngSwUpdate.versionUpdates.subscribe((event: VersionEvent) => {
       if (event.type === 'VERSION_READY') {
         this.prompt();
       }
     });
+
+    // Do not wait for ApplicationRef.isStable — live feed websockets, audio, and
+    // map polling keep the app perpetually "unstable", which delayed checks by minutes.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(() => this.checkForUpdate());
+    }
+
+    this.subs.add(interval(60_000).subscribe(() => this.checkForUpdate()));
+    document.addEventListener('visibilitychange', this.onVisibility);
+  }
+
+  ngOnDestroy(): void {
+    this.subs.unsubscribe();
+    document.removeEventListener('visibilitychange', this.onVisibility);
+  }
+
+  private checkForUpdate(): void {
+    if (!this.ngSwUpdate.isEnabled) {
+      return;
+    }
+    this.ngSwUpdate.checkForUpdate().catch(() => undefined);
   }
 
   prompt(): void {
+    if (this.prompting) {
+      return;
+    }
+    this.prompting = true;
     this.matDialog.open(AppUpdateComponent, {
       panelClass: 'tlr-lcd-dialog',
       backdropClass: 'tlr-lcd-dialog-backdrop',
       autoFocus: 'dialog',
     }).afterClosed().subscribe((doUpdate) => {
+      this.prompting = false;
       if (doUpdate) {
         if (this.ngSwUpdate.isEnabled) {
           this.ngSwUpdate.activateUpdate().then(() => document.location.reload());

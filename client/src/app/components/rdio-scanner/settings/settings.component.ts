@@ -26,6 +26,7 @@ import { RdioScannerService } from '../rdio-scanner.service';
 import { SettingsService } from './settings.service';
 import { TagColorService, TagColorConfig } from '../tag-color.service';
 import { AlertSoundService, AlertSound } from '../alert-sound.service';
+import { WeatherAlertTickerBridgeService } from '../weather/weather-alert-ticker-bridge.service';
 import { AlertsService } from '../alerts/alerts.service';
 import { RdioScannerAlertPreference } from '../rdio-scanner';
 import { APP_FONTS } from '../app-font.util';
@@ -47,6 +48,8 @@ export class RdioScannerSettingsComponent implements OnDestroy, OnInit {
     autoLivefeed: boolean = false;
     isPWA: boolean = false;
     alertSound: string = 'alert';
+    weatherAlertSoundEnabled = false;
+    weatherAlertSound: string = 'alert';
     availableAlertSounds: AlertSound[] = [];
     
     // Font selection
@@ -103,6 +106,7 @@ export class RdioScannerSettingsComponent implements OnDestroy, OnInit {
         private http: HttpClient,
         private fb: FormBuilder,
         private snackBar: MatSnackBar,
+        private weatherAlertTickerBridge: WeatherAlertTickerBridgeService,
     ) {
         this.emailForm = this.fb.group({
             newEmail: ['', [Validators.required, Validators.email]],
@@ -415,6 +419,8 @@ export class RdioScannerSettingsComponent implements OnDestroy, OnInit {
                 this.autoLivefeed = this.settings.autoLivefeed || false;
                 // Load alert sound setting
                 this.alertSound = this.settings.alertSound || 'alert';
+                this.weatherAlertSoundEnabled = !!this.settings.weatherAlertSoundEnabled;
+                this.weatherAlertSound = this.settings.weatherAlertSound || 'alert';
                 // Load font setting
                 this.appFont = this.settings.appFont || 'Roboto';
                 this.appFontService.apply(this.appFont);
@@ -425,6 +431,8 @@ export class RdioScannerSettingsComponent implements OnDestroy, OnInit {
                 this.livefeedBacklogMinutes = 0;
                 this.autoLivefeed = false;
                 this.alertSound = 'alert';
+                this.weatherAlertSoundEnabled = false;
+                this.weatherAlertSound = 'alert';
                 this.appFont = 'Roboto';
             },
         });
@@ -492,6 +500,8 @@ export class RdioScannerSettingsComponent implements OnDestroy, OnInit {
         this.settings.livefeedBacklogMinutes = this.livefeedBacklogMinutes;
         this.settings.autoLivefeed = this.autoLivefeed;
         this.settings.alertSound = this.alertSound;
+        this.settings.weatherAlertSoundEnabled = this.weatherAlertSoundEnabled;
+        this.settings.weatherAlertSound = this.weatherAlertSound;
         this.settings.appFont = this.appFont;
         this.settingsService.saveSettings(this.settings).subscribe({
             next: () => {
@@ -524,8 +534,28 @@ export class RdioScannerSettingsComponent implements OnDestroy, OnInit {
         this.saveSettings();
     }
 
+    onWeatherAlertSoundChange(): void {
+        this.saveSettings();
+    }
+
     previewAlertSound(soundName: string): void {
         this.alertSoundService.previewSound(soundName);
+    }
+
+    testWeatherAlertTicker(): void {
+        const played = this.weatherAlertTickerBridge.triggerTest(
+            this.weatherAlertSoundEnabled,
+            this.weatherAlertSound,
+        );
+        if (!played) {
+            this.snackBar.open('Could not reach the header ticker. Try refreshing the page.', 'Close', {
+                duration: 4000,
+            });
+            return;
+        }
+        this.snackBar.open('Test alert scrolling in the header ticker.', 'Close', {
+            duration: 3000,
+        });
     }
     
     onFontChange(): void {

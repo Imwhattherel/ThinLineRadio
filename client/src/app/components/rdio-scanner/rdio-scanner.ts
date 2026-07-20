@@ -93,6 +93,11 @@ export interface RdioScannerToneSet {
     longTone?: RdioScannerToneSpec;
     tolerance?: number;
     minDuration?: number;
+    geoCity?: string;
+    geoLat?: number;
+    geoLon?: number;
+    geoRadiusMiles?: number;
+    locationContext?: string;
 }
 
 export interface RdioScannerToneSpec {
@@ -120,6 +125,23 @@ export interface RdioScannerAlert {
     talkgroupName?: string;
     matchedToneSetName?: string; // Backward compatibility - first tone set
     matchedToneSetNames?: string[]; // All matched tone sets for stacked tones
+    incidentLat?: number;
+    incidentLon?: number;
+    incidentAddress?: string;
+    incidentNature?: string;
+    incidentGeocodeStatus?: string;
+}
+
+/** Pushed when server-side incident mapping finishes for a call. */
+export interface RdioScannerIncidentUpdate {
+    callId: number;
+    systemId: number;
+    talkgroupId: number;
+    incidentAddress?: string;
+    incidentNature?: string;
+    incidentLat?: number;
+    incidentLon?: number;
+    incidentGeocodeStatus?: string;
 }
 
 export interface RdioScannerTranscript {
@@ -243,6 +265,7 @@ export interface RdioScannerConfig {
 
 export interface RdioScannerEvent {
     alert?: any;
+    incident?: RdioScannerIncidentUpdate;
     auth?: boolean;
     categories?: RdioScannerCategory[];
     call?: RdioScannerCall;
@@ -325,6 +348,8 @@ export interface RdioScannerSearchOptions {
 
 export interface RdioScannerSystem {
     id: number;
+    /** Database primary key (server JSON field `systemId`). */
+    systemId?: number;
     systemRef?: number;
     alert?: string;
     label: string;

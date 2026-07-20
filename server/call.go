@@ -87,8 +87,11 @@ type Call struct {
 	TrainingReviewStatus string // pending, submitted
 	TranscriptConfidence float64
 	TranscriptionStatus  string
-	AlertSummary         string  // Optional short LLM summary for alerts (when summarized alerts enabled)
-	ApiKeyId             *uint64 // API key used for upload (for preferred API key logic)
+	AlertSummary         string // Optional short LLM summary for alerts (when summarized alerts enabled)
+	// ExtractedAddress is an optional short scene address / place from Gemini
+	// when incident-mapping address extraction is enabled. Runtime + DB column.
+	ExtractedAddress string
+	ApiKeyId         *uint64 // API key used for upload (for preferred API key logic)
 
 	// Add back simple fields for compatibility with v6 uploads
 	SystemId    uint `json:"system"`

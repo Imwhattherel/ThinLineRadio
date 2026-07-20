@@ -3,7 +3,7 @@
  *
  * The scanner UI uses mat.define-light-theme(); expansion panels and a few
  * other widgets stay white unless we override them here. Scoped under
- * `.thinline-skin` so admin / legacy views are unaffected.
+ * `.thinline-skin` so admin views are unaffected.
  */
 
 /* mat-tab bodies use the light-theme canvas; with `height: 100%` on

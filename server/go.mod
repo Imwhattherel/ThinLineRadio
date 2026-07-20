@@ -10,12 +10,14 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/jackc/pgx/v5 v5.0.4
+	github.com/jonas-p/go-shp v0.1.1
 	github.com/kardianos/service v1.2.2
 	github.com/lib/pq v1.10.9
 	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/stripe/stripe-go/v74 v74.30.0
 	github.com/stripe/stripe-go/v76 v76.25.0
 	golang.org/x/crypto v0.31.0
+	golang.org/x/sync v0.12.0
 	golang.org/x/term v0.38.0
 	gonum.org/v1/gonum v0.16.0
 	gopkg.in/ini.v1 v1.67.0

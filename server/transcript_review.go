@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"rdio-scanner/server/mapping"
 )
 
 const defaultTranscriptCollectorURL = "https://transcripts.thinlineds.com"
@@ -305,7 +307,7 @@ func (admin *Admin) approveTranscriptReview(w http.ResponseWriter, r *http.Reque
 		json.NewEncoder(w).Encode(map[string]string{"error": "reviewed transcript is empty"})
 		return
 	}
-	reviewedUpper := strings.ToUpper(reviewed)
+	reviewedUpper := mapping.NormalizeTranscriptPlainText(reviewed)
 
 	if call.TrainingReviewStatus == "submitted" {
 		w.WriteHeader(http.StatusConflict)

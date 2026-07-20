@@ -1,0 +1,109 @@
+.weather-alert-ticker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 152, 0, 0.35);
+    background: rgba(255, 152, 0, 0.08);
+    overflow: hidden;
+    user-select: none;
+}
+
+.weather-alert-ticker--ack {
+    cursor: default;
+}
+
+.weather-alert-ticker--flash {
+    cursor: pointer;
+    animation: tlr-weather-ticker-flash 0.85s ease-in-out infinite;
+
+    .weather-alert-ticker__icon {
+        color: #ffeb3b;
+    }
+
+    .weather-alert-ticker__text {
+        color: #fff;
+        font-weight: 800;
+    }
+}
+
+.weather-alert-ticker--test {
+    border-color: rgba(255, 193, 7, 0.65);
+    background: rgba(255, 193, 7, 0.14);
+    box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.2);
+}
+
+.weather-alert-ticker--test .weather-alert-ticker__text {
+    color: #fff8e1;
+}
+
+.weather-alert-ticker__icon {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+    color: #ffb74d;
+}
+
+.weather-alert-ticker__viewport {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.weather-alert-ticker__track {
+    display: flex;
+    width: max-content;
+    animation: tlr-weather-ticker-scroll 40s linear infinite;
+    will-change: transform;
+
+    &:hover {
+        animation-play-state: paused;
+    }
+}
+
+.weather-alert-ticker__text {
+    flex: 0 0 auto;
+    padding-right: 48px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #ffe0b2;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.weather-alert-ticker__idle {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@keyframes tlr-weather-ticker-scroll {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+@keyframes tlr-weather-ticker-flash {
+    0%, 100% {
+        background: rgba(255, 87, 34, 0.2);
+        border-color: rgba(255, 87, 34, 0.85);
+        box-shadow: 0 0 0 0 rgba(255, 87, 34, 0.35);
+    }
+    50% {
+        background: rgba(255, 152, 0, 0.45);
+        border-color: #ffeb3b;
+        box-shadow: 0 0 16px 3px rgba(255, 87, 34, 0.55);
+    }
+}

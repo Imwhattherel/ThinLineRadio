@@ -22,6 +22,7 @@ import (
 
 const (
 	MessageCommandAlert          = "ALT"
+	MessageCommandIncident       = "INC"
 	MessageCommandCall           = "CAL"
 	MessageCommandConfig         = "CFG"
 	MessageCommandError          = "ERR"

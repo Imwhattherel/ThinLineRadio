@@ -23,7 +23,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { AbstractControl, FormBuilder, FormGroup, FormArray, ValidationErrors, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { PageEvent } from '@angular/material/paginator';
-import { RdioScannerAdminService, System } from '../../admin.service';
+import { RdioScannerAdminService, System, Apikey } from '../../admin.service';
 import { InviteUserDialogComponent, InvitationResultsDialogComponent, CreateUserDialogComponent, ResetPasswordDialogComponent } from './invite-user-dialog.component';
 import { TransferUserDialogComponent } from './transfer-user-dialog.component';
 import { RdioScannerAdminSystemsSelectComponent } from '../systems/select/select.component';
@@ -61,6 +61,8 @@ export interface User {
     systemAdmin?: boolean;
     pushSystemNoAudioAlerts?: boolean;
     pushApiKeyNoAudioAlerts?: boolean;
+    systemNoAudioAlertSystems?: string;
+    apiKeyNoAudioAlertApiKeys?: string;
     forcePasswordReset?: boolean;
     stripeCustomerId: string;
     stripeSubscriptionId: string;
@@ -103,6 +105,7 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
     availableGroups: any[] = [];
     inviting = false;
     systems: System[] = [];
+    apikeys: Apikey[] = [];
     configGroups: any[] = [];
     configTags: any[] = [];
     systemDelayEntries: Array<{systemId: number, delay: number}> = [];
@@ -115,6 +118,31 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             return null;
         }
         return /^\d{5}(-\d{4})?$/.test(v) ? null : { pattern: true };
+    }
+
+    private static parseNoAudioAlertIds(raw?: string): number[] {
+        const value = (raw ?? '').trim();
+        if (!value || value === '[]') {
+            return [];
+        }
+        try {
+            const parsed = JSON.parse(value);
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed.map((entry) => Number(entry)).filter((id) => Number.isFinite(id) && id > 0);
+        } catch {
+            return [];
+        }
+    }
+
+    private static serializeNoAudioAlertIds(ids: number[] | null | undefined): string {
+        const cleaned = (ids ?? []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
+        return JSON.stringify(cleaned);
+    }
+
+    private static apiKeyOptionId(apikey: Apikey): number {
+        return Number(apikey.id);
     }
 
     constructor(
@@ -145,6 +173,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             userGroupId: [0],
             isGroupAdmin: [false],
             systemAdmin: [false],
+            systemNoAudioAlertSystemIds: [[] as number[]],
+            apiKeyNoAudioAlertApiKeyIds: [[] as number[]],
             pushSystemNoAudioAlerts: [false],
             pushApiKeyNoAudioAlerts: [false],
             forcePasswordReset: [false],
@@ -161,6 +191,7 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
         this.loadUsers(true);
         this.loadGroups();
         this.loadSystems();
+        this.loadApikeys();
     }
 
     ngOnChanges(changes: SimpleChanges): void {
@@ -193,6 +224,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
                 userGroupId: user.userGroupId || 0,
                 isGroupAdmin: user.isGroupAdmin || false,
                 systemAdmin: user.systemAdmin || false,
+                systemNoAudioAlertSystemIds: RdioScannerAdminUsersComponent.parseNoAudioAlertIds(user.systemNoAudioAlertSystems),
+                apiKeyNoAudioAlertApiKeyIds: RdioScannerAdminUsersComponent.parseNoAudioAlertIds(user.apiKeyNoAudioAlertApiKeys),
                 pushSystemNoAudioAlerts: user.pushSystemNoAudioAlerts || false,
                 pushApiKeyNoAudioAlerts: user.pushApiKeyNoAudioAlerts || false,
                 forcePasswordReset: user.forcePasswordReset || false,
@@ -227,6 +260,18 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
         // Also store groups and tags for the system selection dialog
         this.configGroups = config.groups || [];
         this.configTags = config.tags || [];
+    }
+
+    async loadApikeys(): Promise<void> {
+        try {
+            this.apikeys = await this.adminService.getApikeys();
+        } catch {
+            this.apikeys = [];
+        }
+    }
+
+    apiKeyOptionId(apikey: Apikey): number {
+        return RdioScannerAdminUsersComponent.apiKeyOptionId(apikey);
     }
 
     getTalkgroupsForSystem(systemId: number): any[] {
@@ -628,6 +673,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             userGroupId: user.userGroupId || 0,
             isGroupAdmin: user.isGroupAdmin || false,
             systemAdmin: user.systemAdmin || false,
+            systemNoAudioAlertSystemIds: RdioScannerAdminUsersComponent.parseNoAudioAlertIds(user.systemNoAudioAlertSystems),
+            apiKeyNoAudioAlertApiKeyIds: RdioScannerAdminUsersComponent.parseNoAudioAlertIds(user.apiKeyNoAudioAlertApiKeys),
             pushSystemNoAudioAlerts: user.pushSystemNoAudioAlerts || false,
             pushApiKeyNoAudioAlerts: user.pushApiKeyNoAudioAlerts || false,
             forcePasswordReset: user.forcePasswordReset || false,
@@ -743,6 +790,8 @@ export class RdioScannerAdminUsersComponent implements OnInit, OnDestroy, OnChan
             userGroupId: parseNonNegativeInt(formValue.userGroupId),
             isGroupAdmin: !!formValue.isGroupAdmin,
             systemAdmin: !!formValue.systemAdmin,
+            systemNoAudioAlertSystems: RdioScannerAdminUsersComponent.serializeNoAudioAlertIds(formValue.systemNoAudioAlertSystemIds),
+            apiKeyNoAudioAlertApiKeys: RdioScannerAdminUsersComponent.serializeNoAudioAlertIds(formValue.apiKeyNoAudioAlertApiKeyIds),
             pushSystemNoAudioAlerts: !!formValue.pushSystemNoAudioAlerts,
             pushApiKeyNoAudioAlerts: !!formValue.pushApiKeyNoAudioAlerts,
             forcePasswordReset: !!formValue.forcePasswordReset,

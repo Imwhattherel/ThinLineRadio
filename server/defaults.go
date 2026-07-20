@@ -91,6 +91,7 @@ type DefaultOptions struct {
 	stripePublishableKey        string
 	stripeSecretKey             string
 	stripeWebhookSecret         string
+	stripeBillingPortalConfigurationId string
 	stripeGracePeriodDays        uint
 	stripePriceId               string
 	baseUrl                     string
@@ -207,6 +208,7 @@ var defaults = Defaults{
 		stripePublishableKey:        "",
 		stripeSecretKey:             "",
 		stripeWebhookSecret:         "",
+		stripeBillingPortalConfigurationId: "",
 		stripeGracePeriodDays:       0,
 		stripePriceId:               "",
 		baseUrl:                     "",

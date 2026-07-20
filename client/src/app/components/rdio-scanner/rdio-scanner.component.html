@@ -16,102 +16,13 @@
         (signOut)="onSignOut()">
     </rdio-scanner-mobile-web-hub>
 
-    <ng-container *ngIf="!hasVerificationToken() && (!authRequired || userAuthenticated) && !isMobileRestrictedBrowser">
-
-        <!-- Console layout — mounted only while active -->
-        <div class="view-host" *ngIf="!useClassicView">
-            <rdio-scanner-chassis class="thinline-skin">
-                <rdio-scanner-console
-                    (toggleFullscreen)="toggleFullscreen()"
-                    (signOut)="onSignOut()"
-                    (toggleClassicViewRequest)="toggleClassicView()">
-                </rdio-scanner-console>
-            </rdio-scanner-chassis>
-        </div>
-
-        <!-- Classic layout — scanner shell + sidenav panels; mounted only while active -->
-        <div class="view-host" *ngIf="useClassicView">
-        <mat-sidenav-container [hasBackdrop]="false" class="thinline-skin">
-            <mat-sidenav #classicSearchPanel [autoFocus]="false" [disableClose]="true" position="start" (closedStart)="onSearchPanelClosed()">
-                <div class="panel search">
-                    <mat-toolbar>
-                        <div>
-                            <button mat-icon-button (click)="classicSearchPanel.close()">
-                                <mat-icon>arrow_forward</mat-icon>
-                            </button>
-                        </div>
-                    </mat-toolbar>
-                    <div #classicScrollableSearch>
-                        <div *ngIf="classicSearchMounted">
-                            <rdio-scanner-search #classicSearchComponent></rdio-scanner-search>
-                        </div>
-                    </div>
-                </div>
-            </mat-sidenav>
-
-            <mat-sidenav #classicSelectPanel [autoFocus]="false" [disableClose]="true" position="end">
-                <div class="panel select">
-                    <mat-toolbar>
-                        <div>
-                            <button mat-icon-button (click)="classicSelectPanel.close()">
-                                <mat-icon>arrow_back</mat-icon>
-                            </button>
-                        </div>
-                    </mat-toolbar>
-                    <div #classicScrollableSelect>
-                        <div *ngIf="classicSelectMounted">
-                            <rdio-scanner-select></rdio-scanner-select>
-                        </div>
-                    </div>
-                </div>
-            </mat-sidenav>
-
-            <mat-sidenav #classicSettingsPanel [autoFocus]="false" [disableClose]="true" position="end">
-                <div class="panel settings">
-                    <mat-toolbar>
-                        <div>
-                            <button mat-icon-button (click)="classicSettingsPanel.close()">
-                                <mat-icon>arrow_back</mat-icon>
-                            </button>
-                        </div>
-                    </mat-toolbar>
-                    <div #classicScrollableSettings>
-                        <div *ngIf="classicSettingsMounted">
-                            <rdio-scanner-settings></rdio-scanner-settings>
-                        </div>
-                    </div>
-                </div>
-            </mat-sidenav>
-
-            <mat-sidenav #classicAlertsPanel [autoFocus]="false" [disableClose]="true" position="end">
-                <div class="panel alerts">
-                    <mat-toolbar>
-                        <div>
-                            <button mat-icon-button (click)="classicAlertsPanel.close()">
-                                <mat-icon>arrow_back</mat-icon>
-                            </button>
-                        </div>
-                    </mat-toolbar>
-                    <div #classicScrollableAlerts>
-                        <div *ngIf="classicAlertsMounted">
-                            <rdio-scanner-alerts [includeTranscriptsTab]="true"></rdio-scanner-alerts>
-                        </div>
-                    </div>
-                </div>
-            </mat-sidenav>
-
-            <mat-sidenav-content>
-                <rdio-scanner-main-legacy
-                    (openSearchPanel)="openClassicSearchPanel()"
-                    (openSelectPanel)="openClassicSelectPanel()"
-                    (openSettingsPanel)="openClassicSettingsPanel()"
-                    (openAlertsPanel)="openClassicAlertsPanel()"
-                    (toggleFullscreen)="toggleFullscreen()"
-                    (signOut)="onSignOut()"
-                    (toggleClassicViewRequest)="toggleClassicView()">
-                </rdio-scanner-main-legacy>
-            </mat-sidenav-content>
-        </mat-sidenav-container>
-        </div>
-    </ng-container>
+    <div class="view-host"
+         *ngIf="!hasVerificationToken() && (!authRequired || userAuthenticated) && !isMobileRestrictedBrowser">
+        <rdio-scanner-chassis class="thinline-skin">
+            <rdio-scanner-console
+                (toggleFullscreen)="toggleFullscreen()"
+                (signOut)="onSignOut()">
+            </rdio-scanner-console>
+        </rdio-scanner-chassis>
+    </div>
 </div>

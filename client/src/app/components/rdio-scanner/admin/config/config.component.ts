@@ -428,6 +428,22 @@ export class RdioScannerAdminConfigComponent implements OnDestroy, OnInit {
                             converted.downstreamAPIKey = toneSet.downstreamAPIKey;
                         }
 
+                        if (toneSet.geoCity) {
+                            converted.geoCity = toneSet.geoCity;
+                        }
+                        if (toneSet.geoLat != null && toneSet.geoLat !== '') {
+                            converted.geoLat = toneSet.geoLat;
+                        }
+                        if (toneSet.geoLon != null && toneSet.geoLon !== '') {
+                            converted.geoLon = toneSet.geoLon;
+                        }
+                        if (toneSet.geoRadiusMiles != null && toneSet.geoRadiusMiles !== '') {
+                            converted.geoRadiusMiles = toneSet.geoRadiusMiles;
+                        }
+                        if (toneSet.locationContext) {
+                            converted.locationContext = toneSet.locationContext;
+                        }
+
                         return converted;
                     });
                 }
