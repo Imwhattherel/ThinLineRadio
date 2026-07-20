@@ -1,5 +1,20 @@
 # Change log
 
+## Version 26.07.23 - Released July 20, 2026
+
+### Fixed
+
+- **Transcription — tone removal before STT**
+  - Re-enabled cutting sustained dispatch tones out of audio before Whisper/Gemini.
+  - Clips with less than ~2s of audio remaining after tone removal are skipped (tone-only; no hallucinated “beep” transcripts).
+
+- **Transcription — min call duration bypass for tone channels**
+  - Talkgroups with **Tone Detection** enabled now bypass the global minimum call duration, same as **Alerting talkgroup**.
+  - Short voice follow-ups after a tone page (e.g. Champion Off Duty + brief dispatch) can be transcribed again.
+  - Tone-only clips are still skipped after tone removal when almost no speech remains.
+
+---
+
 ## Version 26.07.22 - Released July 20, 2026
 
 ### Fixed

@@ -1670,7 +1670,7 @@
         <div class="row">
           <p>
             <span class="mat-body">Minimum Call Duration (seconds)</span><br>
-            <span class="mat-caption">Skip transcription for calls shorter than this duration (applies to all talkgroups). When tones are detected, remaining audio after tones is compared. Set to 0 to only skip tone-only clips (&lt; 2s remaining).</span>
+            <span class="mat-caption">Skip transcription for calls shorter than this duration. <strong>Alerting talkgroup</strong> and <strong>Tone Detection</strong> channels bypass this floor (tone-only clips with &lt; 2s remaining after tone removal are still skipped). Set to 0 to only skip tone-only clips.</span>
           </p>
           <mat-form-field>
             <input type="number" min="0" step="0.1" matInput formControlName="minCallDuration" placeholder="0" autocomplete="off">

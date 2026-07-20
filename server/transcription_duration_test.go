@@ -11,11 +11,14 @@ func TestBypassMinCallDurationForCall(t *testing.T) {
 	if bypassMinCallDurationForCall(&Call{}) {
 		t.Fatal("nil talkgroup")
 	}
-	if bypassMinCallDurationForCall(&Call{Talkgroup: &Talkgroup{AlertingTalkgroup: false}}) {
-		t.Fatal("non-alerting talkgroup must not bypass")
+	if bypassMinCallDurationForCall(&Call{Talkgroup: &Talkgroup{}}) {
+		t.Fatal("plain talkgroup must not bypass")
 	}
 	if !bypassMinCallDurationForCall(&Call{Talkgroup: &Talkgroup{AlertingTalkgroup: true}}) {
 		t.Fatal("alerting talkgroup must bypass")
+	}
+	if !bypassMinCallDurationForCall(&Call{Talkgroup: &Talkgroup{ToneDetectionEnabled: true}}) {
+		t.Fatal("tone-detection talkgroup must bypass")
 	}
 }
 

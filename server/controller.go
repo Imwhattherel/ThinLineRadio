@@ -945,11 +945,18 @@ func (controller *Controller) processCallAfterDuplicateCheck(call *Call) {
 		controller.EmitCall(call)
 
 		// Tone detection runs after WriteCall so call.Id is valid for DB updates, pending tones, and orphan alerts.
+		// Transcription waits on toneDone so MinCallDuration can see detected tones (bypass / remaining-after-tones).
+		var toneDone <-chan struct{}
 		if shouldDetectTones {
+			done := make(chan struct{})
+			toneDone = done
 			toneDetectionCall := *call
 			toneDetectionCall.Audio = rawAudio
 			toneDetectionCall.AudioMime = rawAudioMime
-			go controller.processToneDetectionAsync(&toneDetectionCall, call)
+			go func() {
+				defer close(done)
+				controller.processToneDetectionAsync(&toneDetectionCall, call)
+			}()
 		}
 
 		// Auto-learn tone sets from raw ingest audio (does not require configured tone sets).
@@ -961,7 +968,7 @@ func (controller *Controller) processCallAfterDuplicateCheck(call *Call) {
 		}
 
 		// Queue transcription with tone-aware decision
-		go controller.queueTranscriptionIfNeeded(call)
+		go controller.queueTranscriptionIfNeeded(call, toneDone)
 
 		// Note: Pending tones are checked and attached AFTER transcription completes
 		// This ensures we only attach pending tones to calls that actually have voice (not tone-only)
@@ -2529,16 +2536,24 @@ func (controller *Controller) markTranscriptionFailed(callId uint64, reason stri
 	}
 }
 
-// callToneDurationSeconds sums detected tone lengths on a call.
+// callToneDurationSeconds is the span of audio occupied by detected tones
+// (latest tone end time). Falls back to summed durations when EndTime is unset.
 func callToneDurationSeconds(call *Call) float64 {
 	if call == nil || !call.HasTones || call.ToneSequence == nil {
 		return 0
 	}
-	var total float64
+	var end float64
+	var sum float64
 	for _, tone := range call.ToneSequence.Tones {
-		total += tone.Duration
+		sum += tone.Duration
+		if tone.EndTime > end {
+			end = tone.EndTime
+		}
 	}
-	return total
+	if end > 0 {
+		return end
+	}
+	return sum
 }
 
 // effectiveTranscriptionAudioSeconds is the audio length that should be compared
@@ -2556,11 +2571,14 @@ func effectiveTranscriptionAudioSeconds(audioDuration float64, call *Call) float
 }
 
 // bypassMinCallDurationForCall reports whether MinCallDuration should be skipped.
-// Only the talkgroup-level AlertingTalkgroup flag qualifies — not user alert
-// preferences, tone detection, or keyword alerts (those previously caused nearly
-// every call to bypass the floor).
+// Talkgroup-level AlertingTalkgroup and ToneDetectionEnabled both bypass (same
+// idea as "always STT this channel"). User alert preferences alone do not.
+// Tone-only clips are still skipped via remaining-after-tones / tone removal.
 func bypassMinCallDurationForCall(call *Call) bool {
-	return call != nil && call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup
+	if call == nil || call.Talkgroup == nil {
+		return false
+	}
+	return call.Talkgroup.AlertingTalkgroup || call.Talkgroup.ToneDetectionEnabled
 }
 
 // transcriptionDurationDecision evaluates MinCallDuration / tone-only floors.
@@ -2577,8 +2595,8 @@ func (controller *Controller) transcriptionDurationDecision(call *Call, minDurat
 	if callToneDurationSeconds(call) > 0 && effective < minRemainingAfterTones {
 		return true, fmt.Sprintf("tone_only_remaining (%.1fs < %.1fs)", effective, minRemainingAfterTones), audioDuration, nil
 	}
-	// Alerting talkgroups always STT voiced traffic; skip the admin min-duration
-	// floor only. User-enabled alerts on normal talkgroups still honor minDuration.
+	// Alerting / tone-detection talkgroups bypass the admin min-duration floor.
+	// Plain talkgroups still honor minDuration.
 	if bypassMinCallDurationForCall(call) {
 		return false, "", audioDuration, nil
 	}
@@ -2588,8 +2606,30 @@ func (controller *Controller) transcriptionDurationDecision(call *Call, minDurat
 	return false, "", audioDuration, nil
 }
 
-// queueTranscriptionIfNeeded queues transcription if at least one user has alerts enabled for this talkgroup
-func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
+const toneDetectionWaitTimeout = 4 * time.Second
+
+// waitForToneDetectionBeforeTranscription blocks until tone detection finishes
+// (or times out) so duration decisions see HasTones / remaining-after-tones.
+func (controller *Controller) waitForToneDetectionBeforeTranscription(call *Call, toneDone <-chan struct{}) {
+	if toneDone == nil {
+		return
+	}
+	select {
+	case <-toneDone:
+	case <-time.After(toneDetectionWaitTimeout):
+		id := uint64(0)
+		if call != nil {
+			id = call.Id
+		}
+		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf(
+			"tone detection wait timed out after %s for call %d — applying duration gate without tones",
+			toneDetectionWaitTimeout, id))
+	}
+}
+
+// queueTranscriptionIfNeeded queues transcription if at least one user has alerts enabled for this talkgroup.
+// toneDone is closed when async tone detection finishes; pass nil when tones are not being detected.
+func (controller *Controller) queueTranscriptionIfNeeded(call *Call, toneDone <-chan struct{}) {
 	// Admin-level gate: skip transcription entirely if alerts are disabled at system or talkgroup level
 	if call.System != nil && !call.System.AlertsEnabled {
 		controller.markTranscriptionSkipped(call.Id, "system_alerts_disabled")
@@ -2610,6 +2650,7 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 		// Same duration gate as local STT — Hydra previously skipped MinCallDuration.
 		minDuration := controller.Options.TranscriptionConfig.MinCallDuration
 		go func() {
+			controller.waitForToneDetectionBeforeTranscription(call, toneDone)
 			skip, reason, audioDuration, err := controller.transcriptionDurationDecision(call, minDuration)
 			if err != nil {
 				controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("ffprobe failed for call %d (will skip Hydra transcription): %v", call.Id, err))
@@ -2674,10 +2715,11 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 	minDuration := controller.Options.TranscriptionConfig.MinCallDuration
 
 	// Duration check (and tone-only floor) always runs async so ffprobe never
-	// blocks the ingest path. MinCallDuration is enforced for normal talkgroups;
-	// only AlertingTalkgroup bypasses that floor (not user alert prefs). For
-	// clips with detected tones, the comparison uses remaining audio after tones.
+	// blocks the ingest path. Wait for tone detection when in flight so
+	// remaining-after-tones can skip pure tone pages. AlertingTalkgroup and
+	// ToneDetectionEnabled bypass MinCallDuration; plain talkgroups honor it.
 	go func() {
+		controller.waitForToneDetectionBeforeTranscription(call, toneDone)
 		skip, reason, audioDuration, err := controller.transcriptionDurationDecision(call, minDuration)
 		if err != nil {
 			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("ffprobe failed for call %d (will skip transcription): %v", call.Id, err))
