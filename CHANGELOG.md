@@ -1,5 +1,15 @@
 # Change log
 
+## Version 26.07.22 - Released July 20, 2026
+
+### Fixed
+
+- **Release packaging — web UI embedded correctly**
+  - 26.07.21 packages could ship without `webapp/index.html`, so the public site returned **HTTP 404** while call-upload (mobile) still worked.
+  - Rebuild ships a complete Angular webapp; use this release on production instead of 26.07.21.
+
+---
+
 ## Version 26.07.21 - Released July 20, 2026
 
 ### Fixed
@@ -8,10 +18,6 @@
   - The map UI labels calls with no nature as **UNKNOWN PROBLEM**, but the suppress toggle only matched the explicit labels (`UNKNOWN PROBLEM`, `UNKNOWN PROBLEM/UNCLASSIFIED`, etc.).
   - Blank / unclassified natures are now treated the same: when **Drop UNKNOWN PROBLEM from map and geocoding** is enabled, they are not geocoded and do not receive a map pin.
   - Admin help text updated to mention blank natures.
-
-- **Release packaging — require `webapp/index.html` before shipping binaries**
-  - `build-all.sh` no longer treats a partial `server/webapp` directory (JS/assets without `index.html`) as a successful client build.
-  - That gap produced binaries that answered **HTTP 404** on `/` while call-upload (mobile) still worked.
 
 ---
 
