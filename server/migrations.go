@@ -2445,26 +2445,35 @@ func migrateSystemHealthAlertOptions(db *Database) error {
 // migrateCallUnitsLabel adds a "label" column to the callUnits table to persist
 // P25 talker aliases and other dynamic unit labels submitted with calls.
 func migrateCallUnitsLabel(db *Database) error {
-	// Check if column already exists
 	var exists bool
 	if err := db.Sql.QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns
-			WHERE table_name = 'callUnits' AND column_name = 'label'
+			WHERE table_schema = 'public'
+			  AND table_name = 'callUnits'
+			  AND column_name = 'label'
 		)`).Scan(&exists); err != nil {
-		return fmt.Errorf("migrateCallUnitsLabel: %w", err)
+		return fmt.Errorf("check label column: %w", err)
 	}
 	if exists {
 		return nil
 	}
 
 	log.Println("migrating callUnits: adding label column for P25 talker aliases...")
-	queries := []string{
-		`ALTER TABLE "callUnits" ADD COLUMN IF NOT EXISTS "label" text NOT NULL DEFAULT ''`,
+	// Avoid ADD COLUMN ... NOT NULL DEFAULT in one step — on some Postgres builds that
+	// rewrites large callUnits tables and can drop the client connection (unexpected EOF).
+	if _, err := db.Sql.Exec(`ALTER TABLE "callUnits" ADD COLUMN IF NOT EXISTS "label" text`); err != nil {
+		return fmt.Errorf("add label column: %w", err)
 	}
-	if err := db.migrateWithSchema("20260303000000-callunits-label", queries, true); err != nil {
-		return fmt.Errorf("migrateCallUnitsLabel: %w", err)
+	if _, err := db.Sql.Exec(`ALTER TABLE "callUnits" ALTER COLUMN "label" SET DEFAULT ''`); err != nil {
+		log.Printf("migration note (callUnits label default): %v", err)
 	}
+	if _, err := db.Sql.Exec(`UPDATE "callUnits" SET "label" = '' WHERE "label" IS NULL`); err != nil {
+		log.Printf("migration note (callUnits label null fill): %v", err)
+	} else if _, err := db.Sql.Exec(`ALTER TABLE "callUnits" ALTER COLUMN "label" SET NOT NULL`); err != nil {
+		log.Printf("migration note (callUnits label not null): %v", err)
+	}
+	_, _ = db.Sql.Exec(`INSERT INTO "rdioScannerMeta" ("name") VALUES ('20260303000000-callunits-label') ON CONFLICT ("name") DO NOTHING`)
 	log.Println("callUnits label column migration completed")
 	return nil
 }
@@ -2788,28 +2797,26 @@ func migratePostgresSiteRefToText(db *Database) error {
 // audio to raw PCM and hashing the samples, making it codec/container-agnostic.
 // Empty string for rows ingested before this migration was added.
 func migrateCallsAudioHash(db *Database) error {
-	qs := []string{
-		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "audioHash" text NOT NULL DEFAULT ''`,
-		`CREATE INDEX IF NOT EXISTS "idx_calls_audioHash" ON "calls" ("systemId", "talkgroupId", "audioHash") WHERE "audioHash" != ''`,
+	if _, err := db.Sql.Exec(`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "audioHash" text NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("migrateCallsAudioHash: %w", err)
 	}
-	for _, q := range qs {
-		if _, err := db.Sql.Exec(q); err != nil {
-			return fmt.Errorf("migrateCallsAudioHash: %w", err)
-		}
+	if _, err := db.Sql.Exec(`CREATE INDEX IF NOT EXISTS "idx_calls_audioHash" ON "calls" ("systemId", "talkgroupId", "audioHash") WHERE "audioHash" != ''`); err != nil {
+		log.Printf("migration note (calls audioHash index): %v", err)
 	}
 	return nil
 }
 
 func migrateCallsTrainingReview(db *Database) error {
-	qs := []string{
+	for _, q := range []string{
 		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "reviewedTranscript" text NOT NULL DEFAULT ''`,
 		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "trainingReviewStatus" text NOT NULL DEFAULT ''`,
-		`CREATE INDEX IF NOT EXISTS "calls_training_review_idx" ON "calls" ("trainingReviewStatus", "transcriptionStatus", "timestamp" DESC)`,
-	}
-	for _, q := range qs {
+	} {
 		if _, err := db.Sql.Exec(q); err != nil {
 			return fmt.Errorf("migrateCallsTrainingReview: %w", err)
 		}
+	}
+	if _, err := db.Sql.Exec(`CREATE INDEX IF NOT EXISTS "calls_training_review_idx" ON "calls" ("trainingReviewStatus", "transcriptionStatus", "timestamp" DESC)`); err != nil {
+		log.Printf("migration note (calls training review index): %v", err)
 	}
 	// Partial index for the pending-review queue (callId DESC matches list query).
 	partial := `CREATE INDEX IF NOT EXISTS "calls_transcript_review_pending_idx" ON "calls" ("callId" DESC) WHERE "transcript" <> '' AND "transcriptionStatus" = 'completed' AND COALESCE("trainingReviewStatus", '') <> 'submitted'`
@@ -2944,13 +2951,44 @@ func batchUpdateLogCategories(db *Database, logIDs []int64, categories []string)
 // migrateLogsCategory adds the category column during schema migration only.
 // Index build and row backfill are deferred to startLogsCategoryMaintenance so
 // startup, call ingest, and client serving are not blocked on large log tables.
+//
+// Important: do NOT use ADD COLUMN ... NOT NULL DEFAULT in one step. On PostgreSQL
+// versions that rewrite the table for that form, existing btree indexes are
+// rebuilt. Some installs have oversized log "message" values (and occasionally
+// an index that includes message), which then fails with SQLSTATE 54000
+// ("index row requires N bytes, maximum size is 8191") and blocks startup.
 func migrateLogsCategory(db *Database) error {
 	log.Println("migrating logs category column...")
 
-	if _, err := db.Sql.Exec(`ALTER TABLE "logs" ADD COLUMN IF NOT EXISTS "category" text NOT NULL DEFAULT 'system'`); err != nil {
-		return fmt.Errorf("migrateLogsCategory add column: %w", err)
+	var exists bool
+	check := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'logs'
+			  AND column_name = 'category'
+		)`
+	if err := db.Sql.QueryRow(check).Scan(&exists); err != nil {
+		// Non-fatal: admin log filtering works without categories.
+		log.Printf("migration note (logs category column check): %v", err)
+		return nil
+	}
+	if exists {
+		log.Println("logs category column already exists, skipping")
+		return nil
 	}
 
+	// Nullable, no DEFAULT — metadata-only on all supported PG versions (no rewrite).
+	if _, err := db.Sql.Exec(`ALTER TABLE "logs" ADD COLUMN "category" text`); err != nil {
+		log.Printf("migration note (logs category add column): %v", err)
+		return nil
+	}
+	if _, err := db.Sql.Exec(`ALTER TABLE "logs" ALTER COLUMN "category" SET DEFAULT 'system'`); err != nil {
+		log.Printf("migration note (logs category default): %v", err)
+	}
+
+	log.Println("logs category column added (backfill/index deferred to background)")
 	return nil
 }
 
@@ -2979,6 +3017,8 @@ func startLogsCategoryMaintenance(db *Database) {
 }
 
 func createLogsCategoryIndexBackground(db *Database) {
+	dropInvalidLogsIndexes(db)
+
 	var exists bool
 	checkQuery := `SELECT EXISTS (
 		SELECT 1 FROM pg_indexes
@@ -2999,6 +3039,40 @@ func createLogsCategoryIndexBackground(db *Database) {
 	writeLogStdout("building logs_category_timestamp_idx concurrently in background...")
 	if _, err := db.Sql.Exec(`CREATE INDEX CONCURRENTLY "logs_category_timestamp_idx" ON "logs" ("category", "timestamp" DESC)`); err != nil {
 		writeLogStdout(fmt.Sprintf("migration note (logs category index): %v", err))
+	}
+}
+
+// dropInvalidLogsIndexes removes leftover INVALID indexes from failed
+// CREATE INDEX CONCURRENTLY attempts so later maintenance can retry cleanly.
+func dropInvalidLogsIndexes(db *Database) {
+	rows, err := db.Sql.Query(`
+		SELECT c.relname
+		FROM pg_class c
+		JOIN pg_index i ON i.indexrelid = c.oid
+		JOIN pg_class t ON t.oid = i.indrelid
+		WHERE t.relname = 'logs'
+		  AND NOT i.indisvalid
+	`)
+	if err != nil {
+		writeLogStdout(fmt.Sprintf("migration note (logs invalid index scan): %v", err))
+		return
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil || name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	for _, name := range names {
+		writeLogStdout(fmt.Sprintf("dropping invalid logs index %s...", name))
+		q := fmt.Sprintf(`DROP INDEX CONCURRENTLY IF EXISTS %s`, pq.QuoteIdentifier(name))
+		if _, err := db.Sql.Exec(q); err != nil {
+			writeLogStdout(fmt.Sprintf("migration note (drop invalid logs index %s): %v", name, err))
+		}
 	}
 }
 
@@ -3083,7 +3157,7 @@ func backfillLogsCategory(db *Database) {
 			SELECT "logId", "message"
 			FROM "logs"
 			WHERE "logId" > $1
-			  AND "category" = 'system'
+			  AND ("category" IS NULL OR "category" = 'system')
 			ORDER BY "logId"
 			LIMIT $2
 		`, lastID, batchSize)
@@ -3123,6 +3197,13 @@ func backfillLogsCategory(db *Database) {
 			writeLogStdout(fmt.Sprintf("logs category backfill: %d rows updated...", updated))
 		}
 		time.Sleep(batchPause)
+	}
+
+	// Fill any remaining NULLs, then tighten the column once data is safe.
+	if _, err := db.Sql.Exec(`UPDATE "logs" SET "category" = 'system' WHERE "category" IS NULL`); err != nil {
+		writeLogStdout(fmt.Sprintf("logs category null fill failed: %v", err))
+	} else if _, err := db.Sql.Exec(`ALTER TABLE "logs" ALTER COLUMN "category" SET NOT NULL`); err != nil {
+		writeLogStdout(fmt.Sprintf("migration note (logs category set not null): %v", err))
 	}
 
 	markLogsMigrationDone(db, logsCategoryMigrationID)

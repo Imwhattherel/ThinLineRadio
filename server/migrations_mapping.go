@@ -2,7 +2,11 @@
 
 package main
 
+import "log"
+
 func migrateIncidentMapping(db *Database) error {
+	// Column adds first. Index builds are best-effort afterward so a long
+	// CREATE INDEX on a huge calls table cannot abort the whole migration chain.
 	queries := []string{
 		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "incidentMappingConfig" text NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "incidentMappingConfig" text NOT NULL DEFAULT '{}'`,
@@ -22,12 +26,6 @@ func migrateIncidentMapping(db *Database) error {
 		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "incidentMappingProcessedAt" bigint NOT NULL DEFAULT 0`,
 		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "incidentNatureReviewedAt" bigint NOT NULL DEFAULT 0`,
 		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "incidentAdditional" text NOT NULL DEFAULT '[]'`,
-		`CREATE INDEX IF NOT EXISTS "calls_incident_status_idx" ON "calls" ("incidentGeocodeStatus", "timestamp" DESC)`,
-		// Geocoded pins are map-visible even when nature is still blank.
-		`DROP INDEX IF EXISTS "calls_incident_map_ts_idx"`,
-		`CREATE INDEX IF NOT EXISTS "calls_incident_map_ts_idx" ON "calls" ("timestamp" DESC)
-			WHERE "incidentLat" <> 0 AND "incidentLon" <> 0
-			AND COALESCE("incidentGeocodeStatus", '') NOT IN ('', 'failed', 'skipped')`,
 
 		`CREATE TABLE IF NOT EXISTS "mappingKnownStreets" (
 			"mappingKnownStreetId" bigserial NOT NULL PRIMARY KEY,
@@ -148,5 +146,13 @@ func migrateIncidentMapping(db *Database) error {
 			return err
 		}
 	}
+
+	// Do NOT CREATE INDEX on "calls" here. Production calls tables can be hundreds
+	// of GB; building calls_incident_status_idx has segfaulted Postgres parallel
+	// workers (signal 11) and put the cluster into recovery, which then hangs TLR
+	// startup. Operators can build these offline later with:
+	//   SET max_parallel_maintenance_workers = 0;
+	//   CREATE INDEX CONCURRENTLY ...
+	log.Println("incident mapping: skipping calls incident indexes at startup (build offline on large DBs)")
 	return nil
 }

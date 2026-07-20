@@ -1,5 +1,21 @@
 # Change log
 
+## Version 26.07.20 - Released July 19, 2026
+
+### Fixed
+
+- **Server — logs category migration no longer blocks startup**
+  - Adding the logs `category` column no longer uses `ADD COLUMN ... NOT NULL DEFAULT` in one step (that form can rewrite the table and rebuild indexes).
+  - On databases with very large log messages, that rewrite could fail with PostgreSQL `SQLSTATE 54000` (`index row requires N bytes, maximum size is 8191`) and prevent the server from starting.
+  - The column is now added as nullable metadata-only, defaulted, backfilled in the background, then set `NOT NULL`. Invalid leftover logs indexes from failed concurrent builds are dropped before retrying the category index.
+
+- **Server — safer late migrations on large PostgreSQL databases**
+  - Late migrations retry on transient connection drops (`unexpected EOF`, recovery mode).
+  - `callUnits.label` is added without a table-rewrite `NOT NULL DEFAULT` step.
+  - Startup no longer builds incident indexes on the `calls` table (optional offline later). On very large `calls` tables, `CREATE INDEX calls_incident_status_idx` could segfault Postgres parallel workers and put the cluster into recovery.
+
+---
+
 ## Version 26.07.19 - Released July 19, 2026
 
 ### Added
